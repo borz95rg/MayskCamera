@@ -1,0 +1,659 @@
+package com.maysk.camera.ai
+
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.PointF
+import android.graphics.RadialGradient
+import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.Shader
+import com.maysk.camera.camera.Effect
+import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
+import kotlin.random.Random
+
+/** Набор быстрых операций над изображениями (CPU). Все функции возвращают новый Bitmap. */
+object ImageOps {
+
+    fun ensureMutable(src: Bitmap): Bitmap =
+        if (src.isMutable && src.config == Bitmap.Config.ARGB_8888) src else src.copy(Bitmap.Config.ARGB_8888, true)
+
+    fun limitSize(src: Bitmap, maxSide: Int): Bitmap {
+        val m = max(src.width, src.height)
+        if (m <= maxSide) return src
+        val s = maxSide.toFloat() / m
+        return Bitmap.createScaledBitmap(src, (src.width * s).roundToInt(), (src.height * s).roundToInt(), true)
+    }
+
+    fun rotate(src: Bitmap, degrees: Int, mirror: Boolean = false): Bitmap {
+        if (degrees % 360 == 0 && !mirror) return src
+        val m = Matrix()
+        m.postRotate(degrees.toFloat())
+        if (mirror) m.postScale(-1f, 1f)
+        return Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
+    }
+
+    fun crop(src: Bitmap, rect: RectF): Bitmap {
+        val r = Rect(
+            (rect.left * src.width).roundToInt().coerceIn(0, src.width - 1),
+            (rect.top * src.height).roundToInt().coerceIn(0, src.height - 1),
+            (rect.right * src.width).roundToInt().coerceIn(1, src.width),
+            (rect.bottom * src.height).roundToInt().coerceIn(1, src.height)
+        )
+        if (r.width() <= 1 || r.height() <= 1) return src
+        return Bitmap.createBitmap(src, r.left, r.top, r.width(), r.height())
+    }
+
+    /** Цветовая матрица (формат android.graphics.ColorMatrix) — аппаратно через Canvas. */
+    fun colorMatrix(src: Bitmap, matrix: FloatArray): Bitmap {
+        val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+        val p = Paint(Paint.FILTER_BITMAP_FLAG).apply { colorFilter = ColorMatrixColorFilter(ColorMatrix(matrix)) }
+        Canvas(out).drawBitmap(src, 0f, 0f, p)
+        return out
+    }
+
+    fun vignetteAndFade(src: Bitmap, vignette: Float, fade: Float): Bitmap {
+        if (vignette <= 0.01f && fade <= 0.01f) return src
+        var out = src
+        if (fade > 0.01f) {
+            val k = 1f - fade * 0.25f
+            val o = fade * 0.1f * 255f
+            out = colorMatrix(out, floatArrayOf(k, 0f, 0f, 0f, o, 0f, k, 0f, 0f, o, 0f, 0f, k, 0f, o, 0f, 0f, 0f, 1f, 0f))
+        }
+        if (vignette > 0.01f) {
+            out = ensureMutable(out)
+            val c = Canvas(out)
+            val r = sqrt((out.width * out.width + out.height * out.height).toFloat()) / 2f
+            val p = Paint().apply {
+                shader = RadialGradient(
+                    out.width / 2f, out.height / 2f, r,
+                    intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, Color.argb((vignette * 200).roundToInt().coerceIn(0, 255), 0, 0, 0)),
+                    floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP
+                )
+            }
+            c.drawRect(0f, 0f, out.width.toFloat(), out.height.toFloat(), p)
+        }
+        return out
+    }
+
+    /** Быстрое гауссоподобное размытие через уменьшение/увеличение. */
+    fun fastBlur(src: Bitmap, factor: Int): Bitmap {
+        val f = max(2, factor)
+        val small = Bitmap.createScaledBitmap(src, max(1, src.width / f), max(1, src.height / f), true)
+        val small2 = Bitmap.createScaledBitmap(small, max(1, small.width / 2), max(1, small.height / 2), true)
+        val back = Bitmap.createScaledBitmap(small2, small.width, small.height, true)
+        return Bitmap.createScaledBitmap(back, src.width, src.height, true)
+    }
+
+    /** Box-blur по пикселям (сепарабельный, O(n)). */
+    fun boxBlur(px: IntArray, w: Int, h: Int, r: Int): IntArray {
+        if (r < 1) return px.copyOf()
+        val tmp = IntArray(px.size)
+        val out = IntArray(px.size)
+        val div = 2 * r + 1
+        for (y in 0 until h) {
+            var sr = 0; var sg = 0; var sb = 0
+            val row = y * w
+            for (i in -r..r) {
+                val c = px[row + i.coerceIn(0, w - 1)]
+                sr += (c shr 16) and 255; sg += (c shr 8) and 255; sb += c and 255
+            }
+            for (x in 0 until w) {
+                tmp[row + x] = (0xFF shl 24) or ((sr / div) shl 16) or ((sg / div) shl 8) or (sb / div)
+                val a = px[row + (x - r).coerceIn(0, w - 1)]
+                val b = px[row + (x + r + 1).coerceIn(0, w - 1)]
+                sr += ((b shr 16) and 255) - ((a shr 16) and 255)
+                sg += ((b shr 8) and 255) - ((a shr 8) and 255)
+                sb += (b and 255) - (a and 255)
+            }
+        }
+        for (x in 0 until w) {
+            var sr = 0; var sg = 0; var sb = 0
+            for (i in -r..r) {
+                val c = tmp[i.coerceIn(0, h - 1) * w + x]
+                sr += (c shr 16) and 255; sg += (c shr 8) and 255; sb += c and 255
+            }
+            for (y in 0 until h) {
+                out[y * w + x] = (0xFF shl 24) or ((sr / div) shl 16) or ((sg / div) shl 8) or (sb / div)
+                val a = tmp[(y - r).coerceIn(0, h - 1) * w + x]
+                val b = tmp[(y + r + 1).coerceIn(0, h - 1) * w + x]
+                sr += ((b shr 16) and 255) - ((a shr 16) and 255)
+                sg += ((b shr 8) and 255) - ((a shr 8) and 255)
+                sb += (b and 255) - (a and 255)
+            }
+        }
+        return out
+    }
+
+    private fun pixels(b: Bitmap): IntArray = IntArray(b.width * b.height).also { b.getPixels(it, 0, b.width, 0, 0, b.width, b.height) }
+    private fun fromPixels(px: IntArray, w: Int, h: Int): Bitmap =
+        Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { it.setPixels(px, 0, w, 0, 0, w, h) }
+
+    private inline fun clamp255(v: Int) = if (v < 0) 0 else if (v > 255) 255 else v
+    private inline fun clamp255(v: Float) = if (v < 0f) 0 else if (v > 255f) 255 else v.toInt()
+
+    /** Резкость (unsharp mask). amount 0..2 */
+    fun sharpen(src: Bitmap, amount: Float, radius: Int = 1): Bitmap {
+        if (amount <= 0.01f) return src
+        val w = src.width; val h = src.height
+        val px = pixels(src)
+        val bl = boxBlur(px, w, h, radius)
+        for (i in px.indices) {
+            val c = px[i]; val b = bl[i]
+            val r = (c shr 16) and 255; val g = (c shr 8) and 255; val bb = c and 255
+            val nr = clamp255(r + ((r - ((b shr 16) and 255)) * amount).toInt())
+            val ng = clamp255(g + ((g - ((b shr 8) and 255)) * amount).toInt())
+            val nb = clamp255(bb + ((bb - (b and 255)) * amount).toInt())
+            px[i] = (0xFF shl 24) or (nr shl 16) or (ng shl 8) or nb
+        }
+        return fromPixels(px, w, h)
+    }
+
+    /** Шумоподавление с сохранением краёв: смешиваем с размытием там, где разница мала. */
+    fun denoise(src: Bitmap, strength: Float): Bitmap {
+        if (strength <= 0.01f) return src
+        val w = src.width; val h = src.height
+        val px = pixels(src)
+        val r = max(1, (min(w, h) / 700f * (1 + strength * 2)).roundToInt())
+        val bl = boxBlur(px, w, h, r)
+        val thr = 10f + 30f * strength
+        for (i in px.indices) {
+            val c = px[i]; val b = bl[i]
+            val dr = ((c shr 16) and 255) - ((b shr 16) and 255)
+            val dg = ((c shr 8) and 255) - ((b shr 8) and 255)
+            val db = (c and 255) - (b and 255)
+            val d = (abs(dr) + abs(dg) + abs(db)) / 3f
+            val wgt = strength * exp(-(d / thr).pow(2))
+            val nr = ((c shr 16) and 255) - dr * wgt
+            val ng = ((c shr 8) and 255) - dg * wgt
+            val nb = (c and 255) - db * wgt
+            px[i] = (0xFF shl 24) or (clamp255(nr) shl 16) or (clamp255(ng) shl 8) or clamp255(nb)
+        }
+        return fromPixels(px, w, h)
+    }
+
+    private fun isSkin(r: Int, g: Int, b: Int): Float {
+        val cb = 128 - 0.168736f * r - 0.331264f * g + 0.5f * b
+        val cr = 128 + 0.5f * r - 0.418688f * g - 0.081312f * b
+        if (cr < 128f || cr > 180f || cb < 72f || cb > 135f) return 0f
+        val ecr = 1f - abs(cr - 152f) / 28f
+        val ecb = 1f - abs(cb - 104f) / 32f
+        return (min(ecr, ecb) * 2.5f).coerceIn(0f, 1f)
+    }
+
+    /**
+     * AI-ретушь кожи: сглаживание только по маске кожи внутри найденных лиц,
+     * текстура сохраняется (частично возвращаем мелкие детали).
+     */
+    fun skinSmooth(src: Bitmap, strength: Float, faces: List<RectF>, brighten: Float = 0f): Bitmap {
+        if (strength <= 0.01f && brighten <= 0.01f) return src
+        val w = src.width; val h = src.height
+        val px = pixels(src)
+        val areas = if (faces.isEmpty()) listOf(RectF(0f, 0f, 1f, 1f)) else faces.map {
+            RectF(it.left - it.width() * 0.25f, it.top - it.height() * 0.35f, it.right + it.width() * 0.25f, it.bottom + it.height() * 0.25f)
+        }
+        val faceW = if (faces.isEmpty()) 0.25f else faces.maxOf { it.width() }
+        val r = max(2, (faceW * w / 45f * (0.6f + strength)).roundToInt())
+        val bl = boxBlur(px, w, h, r)
+        for (area in areas) {
+            val x0 = (area.left * w).roundToInt().coerceIn(0, w); val x1 = (area.right * w).roundToInt().coerceIn(0, w)
+            val y0 = (area.top * h).roundToInt().coerceIn(0, h); val y1 = (area.bottom * h).roundToInt().coerceIn(0, h)
+            val cx = (x0 + x1) / 2f; val cy = (y0 + y1) / 2f
+            val rx = max(1f, (x1 - x0) / 2f); val ry = max(1f, (y1 - y0) / 2f)
+            for (y in y0 until y1) for (x in x0 until x1) {
+                val i = y * w + x
+                val c = px[i]; val b = bl[i]
+                val cr = (c shr 16) and 255; val cg = (c shr 8) and 255; val cb = c and 255
+                val sk = isSkin(cr, cg, cb)
+                if (sk <= 0f) continue
+                val ex = (x - cx) / rx; val ey = (y - cy) / ry
+                val edge = (1f - (ex * ex + ey * ey)).coerceIn(0f, 1f).let { if (faces.isEmpty()) 1f else min(1f, it * 3f) }
+                val d = (abs(cr - ((b shr 16) and 255)) + abs(cg - ((b shr 8) and 255)) + abs(cb - (b and 255))) / 3f
+                val edgeKeep = exp(-(d / 22f).pow(2))
+                val k = (strength * sk * edge * edgeKeep).coerceIn(0f, 0.92f)
+                val lift = brighten * sk * edge * 22f
+                val nr = cr + (((b shr 16) and 255) - cr) * k + lift
+                val ng = cg + (((b shr 8) and 255) - cg) * k + lift
+                val nb = cb + ((b and 255) - cb) * k + lift * 0.9f
+                px[i] = (0xFF shl 24) or (clamp255(nr) shl 16) or (clamp255(ng) shl 8) or clamp255(nb)
+            }
+        }
+        return fromPixels(px, w, h)
+    }
+
+    /** Глаза: осветление, резкость и снижение красноты вокруг точек глаз. */
+    fun enhanceEyes(src: Bitmap, eyes: List<PointF>, radiusNorm: Float, amount: Float): Bitmap {
+        if (eyes.isEmpty() || amount <= 0.01f) return src
+        val w = src.width; val h = src.height
+        val px = pixels(src)
+        val bl = boxBlur(px, w, h, 1)
+        val rad = max(4f, radiusNorm * w)
+        for (e in eyes) {
+            val ex = e.x * w; val ey = e.y * h
+            val x0 = (ex - rad).toInt().coerceIn(0, w - 1); val x1 = (ex + rad).toInt().coerceIn(0, w - 1)
+            val y0 = (ey - rad).toInt().coerceIn(0, h - 1); val y1 = (ey + rad).toInt().coerceIn(0, h - 1)
+            for (y in y0..y1) for (x in x0..x1) {
+                val dx = (x - ex) / rad; val dy = (y - ey) / rad
+                val fall = (1f - (dx * dx + dy * dy)).coerceIn(0f, 1f)
+                if (fall <= 0f) continue
+                val i = y * w + x
+                val c = px[i]; val b = bl[i]
+                var r = ((c shr 16) and 255).toFloat(); var g = ((c shr 8) and 255).toFloat(); var bb = (c and 255).toFloat()
+                // резкость
+                r += (r - ((b shr 16) and 255)) * amount * 1.2f * fall
+                g += (g - ((b shr 8) and 255)) * amount * 1.2f * fall
+                bb += (bb - (b and 255)) * amount * 1.2f * fall
+                // убрать красноту белков
+                val redness = r - (g + bb) / 2f
+                if (redness > 20f && r > 120f) r -= redness * 0.5f * amount * fall
+                // яркость
+                val lift = 18f * amount * fall
+                px[i] = (0xFF shl 24) or (clamp255(r + lift) shl 16) or (clamp255(g + lift) shl 8) or clamp255(bb + lift)
+            }
+        }
+        return fromPixels(px, w, h)
+    }
+
+    /** «Лицо»: мягкая коррекция овала (сужение нижней части) через сетку drawBitmapMesh. */
+    fun slimFace(src: Bitmap, face: RectF, amount: Float): Bitmap {
+        if (amount <= 0.01f) return src
+        val mw = 40; val mh = 40
+        val verts = FloatArray((mw + 1) * (mh + 1) * 2)
+        val fx = face.centerX() * src.width
+        val fy0 = (face.top + face.height() * 0.45f) * src.height
+        val fy1 = face.bottom * src.height
+        val fw = face.width() * src.width
+        var k = 0
+        for (j in 0..mh) {
+            val y = src.height * j / mh.toFloat()
+            for (i in 0..mw) {
+                var x = src.width * i / mw.toFloat()
+                if (y in fy0..fy1 + fw * 0.1f) {
+                    val dx = x - fx
+                    val nd = abs(dx) / (fw * 0.75f)
+                    if (nd < 1f) {
+                        val vy = ((y - fy0) / (fy1 - fy0)).coerceIn(0f, 1f)
+                        val shift = dx * 0.12f * amount * (1f - nd) * vy
+                        x -= shift
+                    }
+                }
+                verts[k++] = x; verts[k++] = y
+            }
+        }
+        val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+        Canvas(out).drawBitmapMesh(src, mw, mh, verts, 0, null, 0, Paint(Paint.FILTER_BITMAP_FLAG))
+        return out
+    }
+
+    /** Статистика для AI-анализа. */
+    data class Stats(
+        val mean: Float, val p2: Float, val p98: Float, val shadows: Float, val highlights: Float,
+        val saturation: Float, val rAvg: Float, val gAvg: Float, val bAvg: Float, val histogram: FloatArray
+    )
+
+    fun stats(src: Bitmap): Stats {
+        val small = limitSize(src, 256)
+        val px = pixels(small)
+        val hist = IntArray(256)
+        var sr = 0L; var sg = 0L; var sb = 0L; var sat = 0f
+        for (c in px) {
+            val r = (c shr 16) and 255; val g = (c shr 8) and 255; val b = c and 255
+            val l = (r * 299 + g * 587 + b * 114) / 1000
+            hist[l]++
+            sr += r; sg += g; sb += b
+            val mx = max(r, max(g, b)); val mn = min(r, min(g, b))
+            sat += if (mx == 0) 0f else (mx - mn) / mx.toFloat()
+        }
+        val n = px.size.toFloat()
+        var acc = 0; var p2 = 0; var p98 = 255
+        var found2 = false
+        for (i in 0..255) {
+            acc += hist[i]
+            if (!found2 && acc >= n * 0.02f) { p2 = i; found2 = true }
+            if (acc >= n * 0.98f) { p98 = i; break }
+        }
+        var mean = 0f
+        for (i in 0..255) mean += i * hist[i]
+        val shadows = (0..25).sumOf { hist[it] } / n
+        val highlights = (240..255).sumOf { hist[it] } / n
+        val hist64 = FloatArray(64)
+        for (i in 0..255) hist64[i / 4] += hist[i] / n
+        return Stats(mean / n / 255f, p2 / 255f, p98 / 255f, shadows, highlights, sat / n,
+            sr / n / 255f, sg / n / 255f, sb / n / 255f, hist64)
+    }
+
+    /** Автоуровни + баланс белого «серый мир». strength 0..1 */
+    fun autoLevelsMatrix(st: Stats, strength: Float = 1f, wb: Boolean = true): FloatArray {
+        val lo = st.p2 * 255f * 0.8f
+        val hi = max(lo + 40f, st.p98 * 255f + (255f - st.p98 * 255f) * 0.3f)
+        val scale = 255f / (hi - lo)
+        val avg = (st.rAvg + st.gAvg + st.bAvg) / 3f
+        val kr = if (wb && st.rAvg > 0.02f) (avg / st.rAvg).coerceIn(0.85f, 1.15f) else 1f
+        val kg = if (wb && st.gAvg > 0.02f) (avg / st.gAvg).coerceIn(0.85f, 1.15f) else 1f
+        val kb = if (wb && st.bAvg > 0.02f) (avg / st.bAvg).coerceIn(0.85f, 1.15f) else 1f
+        fun mix(v: Float, id: Float) = id + (v - id) * strength
+        val sr = mix(scale * kr, 1f); val sg = mix(scale * kg, 1f); val sb = mix(scale * kb, 1f)
+        val o = mix(-lo * scale, 0f)
+        return floatArrayOf(sr, 0f, 0f, 0f, o, 0f, sg, 0f, 0f, o, 0f, 0f, sb, 0f, o, 0f, 0f, 0f, 1f, 0f)
+    }
+
+    /**
+     * Локальное тональное отображение (HDR-эффект из одного кадра):
+     * поднимаем тени и прижимаем света относительно размытой «базы».
+     */
+    fun localToneMap(src: Bitmap, shadows: Float, highlights: Float, detail: Float = 0.3f): Bitmap {
+        if (shadows <= 0.01f && highlights <= 0.01f) return src
+        val w = src.width; val h = src.height
+        val px = pixels(src)
+        val base = pixels(fastBlur(src, max(8, min(w, h) / 60)))
+        for (i in px.indices) {
+            val c = px[i]; val b = base[i]
+            val bl = (((b shr 16) and 255) * 0.299f + ((b shr 8) and 255) * 0.587f + (b and 255) * 0.114f) / 255f
+            val cl = (((c shr 16) and 255) * 0.299f + ((c shr 8) and 255) * 0.587f + (c and 255) * 0.114f) / 255f
+            var gain = 1f
+            if (bl < 0.5f) gain += shadows * (0.5f - bl) * 2.2f
+            else gain -= highlights * (bl - 0.5f) * 0.9f
+            val det = 1f + detail * (cl - bl) * 1.5f
+            val g = (gain * det).coerceIn(0.4f, 3f)
+            px[i] = (0xFF shl 24) or (clamp255(((c shr 16) and 255) * g) shl 16) or
+                (clamp255(((c shr 8) and 255) * g) shl 8) or clamp255((c and 255) * g)
+        }
+        return fromPixels(px, w, h)
+    }
+
+    /** Экспозиционная фьюжн-склейка (HDR из брекетинга). */
+    fun exposureFusion(frames: List<Bitmap>): Bitmap {
+        val w = frames[0].width; val h = frames[0].height
+        val arrs = frames.map { pixels(if (it.width == w && it.height == h) it else Bitmap.createScaledBitmap(it, w, h, true)) }
+        val out = IntArray(w * h)
+        for (i in out.indices) {
+            var r = 0f; var g = 0f; var b = 0f; var ws = 0f
+            for (a in arrs) {
+                val c = a[i]
+                val cr = (c shr 16) and 255; val cg = (c shr 8) and 255; val cb = c and 255
+                val l = (cr * 0.299f + cg * 0.587f + cb * 0.114f) / 255f
+                val wgt = exp(-((l - 0.5f) * (l - 0.5f)) / 0.08f) + 1e-4f
+                r += cr * wgt; g += cg * wgt; b += cb * wgt; ws += wgt
+            }
+            out[i] = (0xFF shl 24) or (clamp255(r / ws) shl 16) or (clamp255(g / ws) shl 8) or clamp255(b / ws)
+        }
+        return fromPixels(out, w, h)
+    }
+
+    /** Поиск сдвига кадра (выравнивание) по уменьшенной яркости, ±range пикселей. */
+    fun estimateShift(ref: Bitmap, frame: Bitmap, range: Int = 12): Pair<Int, Int> {
+        val sw = 320
+        val s = sw.toFloat() / ref.width
+        val sh = max(1, (ref.height * s).roundToInt())
+        val a = pixels(Bitmap.createScaledBitmap(ref, sw, sh, true))
+        val b = pixels(Bitmap.createScaledBitmap(frame, sw, sh, true))
+        fun l(c: Int) = ((c shr 16) and 255) + ((c shr 8) and 255) * 2 + (c and 255)
+        var best = Long.MAX_VALUE; var bx = 0; var by = 0
+        for (dy in -range..range step 2) for (dx in -range..range step 2) {
+            var sum = 0L
+            var y = range
+            while (y < sh - range) {
+                var x = range
+                while (x < sw - range) {
+                    sum += abs(l(a[y * sw + x]) - l(b[(y + dy) * sw + x + dx]))
+                    x += 3
+                }
+                y += 3
+            }
+            if (sum < best) { best = sum; bx = dx; by = dy }
+        }
+        return Pair((bx / s).roundToInt(), (by / s).roundToInt())
+    }
+
+    /** Многокадровое шумоподавление: выравнивание + усреднение. */
+    fun stackFrames(frames: List<Bitmap>): Bitmap {
+        val ref = frames[0]
+        val w = ref.width; val h = ref.height
+        val sr = IntArray(w * h); val sg = IntArray(w * h); val sb = IntArray(w * h); val cnt = ShortArray(w * h)
+        val row = IntArray(w)
+        for ((idx, f) in frames.withIndex()) {
+            val fr = if (f.width == w && f.height == h) f else Bitmap.createScaledBitmap(f, w, h, true)
+            val (dx, dy) = if (idx == 0) Pair(0, 0) else estimateShift(ref, fr)
+            for (y in 0 until h) {
+                val sy = y + dy
+                if (sy < 0 || sy >= h) continue
+                fr.getPixels(row, 0, w, 0, sy, w, 1)
+                for (x in 0 until w) {
+                    val sx = x + dx
+                    if (sx < 0 || sx >= w) continue
+                    val c = row[sx]
+                    val i = y * w + x
+                    sr[i] += (c shr 16) and 255; sg[i] += (c shr 8) and 255; sb[i] += c and 255
+                    cnt[i]++
+                }
+            }
+        }
+        val out = IntArray(w * h)
+        for (i in out.indices) {
+            val n = max(1, cnt[i].toInt())
+            out[i] = (0xFF shl 24) or ((sr[i] / n) shl 16) or ((sg[i] / n) shl 8) or (sb[i] / n)
+        }
+        return fromPixels(out, w, h)
+    }
+
+    /** Ночная обработка одного (уже сложенного) кадра. */
+    fun nightProcess(src: Bitmap): Bitmap {
+        val st = stats(src)
+        var out = colorMatrix(src, autoLevelsMatrix(st, 0.8f))
+        val lift = ((0.35f - st.mean) * 2.5f).coerceIn(0f, 0.9f)
+        out = localToneMap(out, 0.4f + lift, 0.5f, 0.2f)
+        out = denoise(out, 0.7f)
+        return sharpen(out, 0.4f)
+    }
+
+    /** Коррекция дисторсии широкоугольника (бочка) через сетку. k > 0 — выпрямление. */
+    fun undistort(src: Bitmap, k: Float): Bitmap {
+        if (k <= 0.001f) return src
+        val mw = 32; val mh = 32
+        val verts = FloatArray((mw + 1) * (mh + 1) * 2)
+        val cx = src.width / 2f; val cy = src.height / 2f
+        val norm = sqrt(cx * cx + cy * cy)
+        var idx = 0
+        for (j in 0..mh) for (i in 0..mw) {
+            val x = src.width * i / mw.toFloat(); val y = src.height * j / mh.toFloat()
+            val dx = (x - cx) / norm; val dy = (y - cy) / norm
+            val r2 = dx * dx + dy * dy
+            val f = 1f + k * r2
+            verts[idx++] = cx + dx * norm * f
+            verts[idx++] = cy + dy * norm * f
+        }
+        val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+        val c = Canvas(out)
+        val scale = 1f + k * 0.5f
+        c.scale(1f / scale, 1f / scale, cx, cy)
+        c.drawBitmapMesh(src, mw, mh, verts, 0, null, 0, Paint(Paint.FILTER_BITMAP_FLAG))
+        // обрезаем пустые края
+        val m = (1f - 1f / scale) / 2f
+        return crop(out, RectF(m, m, 1f - m, 1f - m))
+    }
+
+    /** Удаление объектов: заполнение маски диффузией от краёв (несколько масштабов). */
+    fun inpaint(src: Bitmap, mask: Bitmap): Bitmap {
+        val w = src.width; val h = src.height
+        val m = if (mask.width == w && mask.height == h) mask else Bitmap.createScaledBitmap(mask, w, h, false)
+        val px = pixels(src)
+        val mp = pixels(m)
+        val hole = BooleanArray(w * h) { ((mp[it] ushr 24) and 255) > 40 }
+        var minX = w; var minY = h; var maxX = 0; var maxY = 0
+        for (y in 0 until h) for (x in 0 until w) if (hole[y * w + x]) {
+            minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+        }
+        if (maxX < minX) return src
+        val pad = 12
+        minX = max(0, minX - pad); minY = max(0, minY - pad); maxX = min(w - 1, maxX + pad); maxY = min(h - 1, maxY + pad)
+        val rw = maxX - minX + 1; val rh = maxY - minY + 1
+        val r = FloatArray(rw * rh); val g = FloatArray(rw * rh); val b = FloatArray(rw * rh)
+        val hl = BooleanArray(rw * rh)
+        for (y in 0 until rh) for (x in 0 until rw) {
+            val si = (y + minY) * w + x + minX; val i = y * rw + x
+            val c = px[si]; hl[i] = hole[si]
+            if (hl[i]) { r[i] = 128f; g[i] = 128f; b[i] = 128f } else {
+                r[i] = ((c shr 16) and 255).toFloat(); g[i] = ((c shr 8) and 255).toFloat(); b[i] = (c and 255).toFloat()
+            }
+        }
+        // Итеративная диффузия: каждая точка дыры = среднее соседей
+        val iterations = min(600, max(rw, rh) * 3)
+        for (it in 0 until iterations) {
+            val step = if (it < iterations / 3) 4 else if (it < iterations * 2 / 3) 2 else 1
+            for (y in 0 until rh) for (x in 0 until rw) {
+                val i = y * rw + x
+                if (!hl[i]) continue
+                var sr = 0f; var sg = 0f; var sb = 0f; var n = 0
+                val xs = intArrayOf(x - step, x + step, x, x)
+                val ys = intArrayOf(y, y, y - step, y + step)
+                for (k in 0 until 4) {
+                    val xx = xs[k]; val yy = ys[k]
+                    if (xx < 0 || yy < 0 || xx >= rw || yy >= rh) continue
+                    val j = yy * rw + xx
+                    sr += r[j]; sg += g[j]; sb += b[j]; n++
+                }
+                if (n > 0) { r[i] = sr / n; g[i] = sg / n; b[i] = sb / n }
+            }
+        }
+        // лёгкое зерно, чтобы заплатка не была «пластиковой»
+        val rnd = Random(42)
+        for (y in 0 until rh) for (x in 0 until rw) {
+            val i = y * rw + x
+            if (!hl[i]) continue
+            val n = (rnd.nextFloat() - 0.5f) * 6f
+            px[(y + minY) * w + x + minX] = (0xFF shl 24) or (clamp255(r[i] + n) shl 16) or (clamp255(g[i] + n) shl 8) or clamp255(b[i] + n)
+        }
+        return fromPixels(px, w, h)
+    }
+
+    /** Восстановление старых фото: убрать желтизну, шум, вернуть контраст и цвет. */
+    fun restoreOldPhoto(src: Bitmap): Bitmap {
+        var out = denoise(src, 0.8f)
+        val st = stats(out)
+        out = colorMatrix(out, autoLevelsMatrix(st, 1f, wb = true))
+        out = colorMatrix(out, ColorMatrix().apply { setSaturation(if (st.saturation < 0.08f) 1f else 1.25f) }.array)
+        out = localToneMap(out, 0.3f, 0.3f, 0.4f)
+        return sharpen(out, 0.7f, 1)
+    }
+
+    /** Размытие фона по маске человека (0..1, размер маски произвольный). */
+    fun blurBackground(src: Bitmap, mask: FloatArray, mw: Int, mh: Int, strength: Float): Bitmap {
+        val w = src.width; val h = src.height
+        val blurred = pixels(fastBlur(src, (8 + strength * 16).roundToInt()))
+        val px = pixels(src)
+        for (y in 0 until h) {
+            val my = (y * mh / h).coerceIn(0, mh - 1)
+            for (x in 0 until w) {
+                val mx = (x * mw / w).coerceIn(0, mw - 1)
+                val fg = mask[my * mw + mx].coerceIn(0f, 1f)
+                val a = 1f - fg
+                if (a < 0.02f) continue
+                val i = y * w + x
+                val c = px[i]; val b = blurred[i]
+                val nr = ((c shr 16) and 255) * fg + ((b shr 16) and 255) * a
+                val ng = ((c shr 8) and 255) * fg + ((b shr 8) and 255) * a
+                val nb = (c and 255) * fg + (b and 255) * a
+                px[i] = (0xFF shl 24) or (clamp255(nr) shl 16) or (clamp255(ng) shl 8) or clamp255(nb)
+            }
+        }
+        return fromPixels(px, w, h)
+    }
+
+    /** Эффекты на фото (аналог шейдера). */
+    fun applyEffect(src: Bitmap, effect: Effect, seed: Long = System.currentTimeMillis()): Bitmap {
+        if (effect == Effect.NONE || effect == Effect.BG_BLUR) return src
+        val rnd = Random(seed)
+        val w = src.width; val h = src.height
+        val out = ensureMutable(src.copy(Bitmap.Config.ARGB_8888, true))
+        val c = Canvas(out)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        when (effect) {
+            Effect.GRAIN, Effect.FILM -> {
+                val px = pixels(out)
+                val amp = if (effect == Effect.FILM) 18 else 30
+                for (i in px.indices) {
+                    val n = rnd.nextInt(amp * 2 + 1) - amp
+                    val col = px[i]
+                    var r = ((col shr 16) and 255) + n; var g = ((col shr 8) and 255) + n; var b = (col and 255) + n
+                    if (effect == Effect.FILM) { r = (r * 1.03f + 8).toInt(); b = (b * 0.9f + 8).toInt(); g += 6 }
+                    px[i] = (0xFF shl 24) or (clamp255(r) shl 16) or (clamp255(g) shl 8) or clamp255(b)
+                }
+                val res = fromPixels(px, w, h)
+                return if (effect == Effect.FILM) vignetteAndFade(res, 0.5f, 0.15f) else res
+            }
+            Effect.GLITCH -> {
+                val px = pixels(out); val dst = px.copyOf()
+                val shift = max(2, w / 120)
+                for (y in 0 until h) {
+                    val band = if (rnd.nextFloat() < 0.02f) rnd.nextInt(w / 20 + 1) else 0
+                    for (x in 0 until w) {
+                        val rx = (x + shift + band).coerceIn(0, w - 1); val bx = (x - shift + band).coerceIn(0, w - 1)
+                        val g = px[y * w + (x + band).coerceIn(0, w - 1)]
+                        dst[y * w + x] = (0xFF shl 24) or (px[y * w + rx] and 0xFF0000) or (g and 0x00FF00) or (px[y * w + bx] and 0xFF)
+                    }
+                }
+                return fromPixels(dst, w, h)
+            }
+            Effect.RAINBOW -> {
+                p.shader = android.graphics.LinearGradient(0f, 0f, w.toFloat(), h.toFloat(),
+                    intArrayOf(0x55FF0000, 0x55FFA500, 0x55FFFF00, 0x5500FF00, 0x550000FF, 0x558B00FF),
+                    null, Shader.TileMode.CLAMP)
+                p.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SCREEN)
+                c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), p)
+            }
+            Effect.RAIN -> {
+                c.drawColor(0x22000814)
+                p.color = 0x99D0DCF0.toInt(); p.strokeWidth = max(1f, w / 900f)
+                repeat((w * h / 6000).coerceAtMost(3000)) {
+                    val x = rnd.nextFloat() * w; val y = rnd.nextFloat() * h; val len = h * (0.02f + rnd.nextFloat() * 0.04f)
+                    c.drawLine(x, y, x - len * 0.15f, y + len, p)
+                }
+            }
+            Effect.SNOW -> {
+                p.color = Color.WHITE
+                repeat((w * h / 9000).coerceAtMost(2500)) {
+                    val r = w * (0.0015f + rnd.nextFloat() * 0.004f)
+                    p.alpha = 150 + rnd.nextInt(105)
+                    c.drawCircle(rnd.nextFloat() * w, rnd.nextFloat() * h, r, p)
+                }
+            }
+            Effect.BOKEH -> {
+                repeat(28) {
+                    val r = w * (0.03f + rnd.nextFloat() * 0.05f)
+                    val x = rnd.nextFloat() * w; val y = rnd.nextFloat() * h
+                    val col = if (rnd.nextBoolean()) Color.argb(70, 255, 190, 110) else Color.argb(60, 255, 110, 150)
+                    p.shader = RadialGradient(x, y, r, intArrayOf(col, col, Color.TRANSPARENT), floatArrayOf(0f, 0.75f, 1f), Shader.TileMode.CLAMP)
+                    c.drawCircle(x, y, r, p)
+                }
+            }
+            Effect.LIGHT_RAYS -> {
+                val ox = -w * 0.1f; val oy = -h * 0.05f
+                p.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SCREEN)
+                for (i in 0 until 9) {
+                    val ang = Math.toRadians(20.0 + i * 7.5 + rnd.nextDouble() * 3)
+                    val len = max(w, h) * 1.3f
+                    val path = android.graphics.Path().apply {
+                        moveTo(ox, oy)
+                        lineTo(ox + (len * kotlin.math.cos(ang - 0.02)).toFloat(), oy + (len * kotlin.math.sin(ang - 0.02)).toFloat())
+                        lineTo(ox + (len * kotlin.math.cos(ang + 0.02)).toFloat(), oy + (len * kotlin.math.sin(ang + 0.02)).toFloat())
+                        close()
+                    }
+                    p.shader = RadialGradient(ox, oy, len, intArrayOf(0x66FFE0A8, 0x00FFE0A8), null, Shader.TileMode.CLAMP)
+                    c.drawPath(path, p)
+                }
+            }
+            else -> Unit
+        }
+        return out
+    }
+}
