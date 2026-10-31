@@ -112,6 +112,9 @@ data class CameraUi(
     val snapDrawing: List<List<android.graphics.PointF>> = emptyList(),
     val snapDrawMode: Boolean = false,
     val snapSticker: String = "",
+    val snapStickerX: Float = 0.82f,
+    val snapStickerY: Float = 0.12f,
+    val snapStickerScale: Float = 1f,
     /** Раскладка двойной камеры. */
     val dualLayout: DualLayout = DualLayout.PIP,
 )
@@ -374,7 +377,9 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         if (newStroke || strokes.isEmpty()) strokes.add(mutableListOf(point)) else strokes[strokes.lastIndex] = strokes.last() + point
         state.copy(snapDrawing = strokes.takeLast(30))
     }
-    fun setSnapSticker(value: String) = _ui.update { it.copy(snapSticker = value.take(4)) }
+    fun setSnapSticker(value: String) = _ui.update { it.copy(snapSticker = value.take(8)) }
+    fun moveSnapSticker(x: Float, y: Float) = _ui.update { it.copy(snapStickerX = x.coerceIn(0f, 0.92f), snapStickerY = y.coerceIn(0f, 0.88f)) }
+    fun scaleSnapSticker(delta: Float) = _ui.update { it.copy(snapStickerScale = (it.snapStickerScale + delta).coerceIn(0.55f, 2.5f)) }
     private val snapVault by lazy { com.maysk.camera.media.SnapVault(ctx) }
     fun pendingSnaps() = snapVault.pending()
     fun consumeSnap(id: String) = snapVault.consumeOnce(id)
@@ -703,8 +708,12 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 arMask = u.arMask,
             )
             val processed = withContext(Dispatchers.Default) { PhotoPipeline.process(raw, spec) }
-            val out = if (u.snapCaption.isNotBlank() || u.snapDrawing.isNotEmpty() || u.snapSticker.isNotBlank()) withContext(Dispatchers.Default) {
-                com.maysk.camera.media.SnapOverlay.render(processed, u.snapCaption, System.currentTimeMillis(), u.snapSticker, u.snapDrawing)
+            val out = if (u.snapCaption.isNotBlank() || u.snapDrawing.isNotEmpty() || u.snapSticker.isNotBlank() || (s.geotag && location != null)) withContext(Dispatchers.Default) {
+                com.maysk.camera.media.SnapOverlay.render(
+                    processed, u.snapCaption, System.currentTimeMillis(), u.snapSticker, u.snapDrawing,
+                    u.snapStickerX, u.snapStickerY, u.snapStickerScale,
+                    if (s.geotag && location != null) "GPS %.4f, %.4f".format(location.latitude, location.longitude) else ""
+                )
             } else processed
             if (u.snapMode) {
                 val entry = withContext(Dispatchers.IO) { snapVault.save(out, u.snapSeconds) }
@@ -845,7 +854,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             controller.setAwbLock(false)
             if (settings.value.shutterSound) runCatching { sound.play(MediaActionSound.STOP_VIDEO_RECORDING) }
             if (uri == null) { toast(err ?: "Видео не сохранено"); return@fin }
-            viewModelScope.launch { postProcessVideo(uri, u.mode, withAudio) }
+            viewModelScope.launch { postProcessVideo(uri, u.mode, withAudio, u.snapMode, u.snapSeconds) }
         }
         if (!ok) toast("Запись недоступна")
     }
@@ -853,7 +862,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun stopRecording() = controller.stopRecording()
     fun pauseResume() = controller.pauseResume()
 
-    private suspend fun postProcessVideo(uri: Uri, mode: CameraMode, withAudio: Boolean) {
+    private suspend fun postProcessVideo(uri: Uri, mode: CameraMode, withAudio: Boolean, snapMode: Boolean = false, snapSeconds: Int = 10) {
         var result = uri
         val audio = if (mode == CameraMode.INTERVIEW) AudioMode.VOICE else settings.value.audioMode
         try {
@@ -879,7 +888,18 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         } catch (t: Throwable) {
             toast("Постобработка пропущена: ${t.message}")
         }
-        _ui.update { it.copy(busy = null, lastUri = result, lastIsVideo = true) }
+        if (snapMode) {
+            _ui.update { it.copy(busy = "Шифрование исчезающего видео…") }
+            val entry = withContext(Dispatchers.IO) { snapVault.saveVideo(result, snapSeconds) }
+            if (entry != null) {
+                runCatching { ctx.contentResolver.delete(result, null, null) }
+                _ui.update { it.copy(busy = null, lastUri = null, lastIsVideo = true, message = "Видео-Snap создано · просмотр один раз · ${snapSeconds} сек.") }
+            } else {
+                _ui.update { it.copy(busy = null, lastUri = result, lastIsVideo = true, message = "Не удалось зашифровать Snap-видео; обычное видео сохранено") }
+            }
+        } else {
+            _ui.update { it.copy(busy = null, lastUri = result, lastIsVideo = true) }
+        }
     }
     // endregion
 

@@ -11,7 +11,12 @@ import java.util.Locale
 
 /** Raster overlay renderer shared by photo export and future video-frame compositor. */
 object SnapOverlay {
-    fun render(source: Bitmap, caption: String, timestamp: Long, sticker: String = "", strokes: List<List<android.graphics.PointF>> = emptyList()) : Bitmap {
+    fun render(
+        source: Bitmap, caption: String, timestamp: Long, sticker: String = "",
+        strokes: List<List<android.graphics.PointF>> = emptyList(),
+        stickerX: Float = 0.82f, stickerY: Float = 0.12f, stickerScale: Float = 1f,
+        locationLabel: String = ""
+    ) : Bitmap {
         val out = source.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(out)
         val pad = out.width * 0.045f
@@ -38,7 +43,11 @@ object SnapOverlay {
         if (caption.isNotBlank()) canvas.drawText(caption.take(80), pad, out.height - pad - textSize * 1.25f, paint)
         paint.textSize = textSize * 0.48f
         canvas.drawText(stamp, pad, out.height - pad, paint)
-        if (sticker.isNotBlank()) { paint.textSize = textSize * 1.5f; canvas.drawText(sticker.take(4), out.width - pad - paint.measureText(sticker.take(4)), pad + textSize * 1.5f, paint) }
+        if (locationLabel.isNotBlank()) canvas.drawText(locationLabel.take(64), pad, out.height - pad - textSize * 1.9f, paint)
+        if (sticker.isNotBlank()) {
+            paint.textSize = textSize * 1.5f * stickerScale.coerceIn(0.55f, 2.5f)
+            canvas.drawText(sticker.take(8), (stickerX.coerceIn(0f, 0.92f) * out.width).coerceAtMost(out.width - pad - paint.measureText(sticker.take(8))), (stickerY.coerceIn(0f, 0.88f) * out.height + paint.textSize).coerceAtMost(out.height - pad), paint)
+        }
         return out
     }
 }

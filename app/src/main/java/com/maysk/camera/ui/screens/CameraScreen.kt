@@ -16,6 +16,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -356,7 +358,20 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                 ui.snapCaption, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp)
             )
-            if (ui.snapSticker.isNotBlank()) Text(ui.snapSticker, fontSize = 34.sp, modifier = Modifier.align(Alignment.TopEnd).padding(18.dp))
+            if (ui.snapSticker.isNotBlank()) BoxWithConstraints(Modifier.fillMaxSize()) {
+                Text(
+                    ui.snapSticker,
+                    fontSize = (34f * ui.snapStickerScale).sp,
+                    modifier = Modifier
+                        .offset(x = maxWidth * ui.snapStickerX, y = maxHeight * ui.snapStickerY)
+                        .pointerInput(ui.snapStickerX, ui.snapStickerY) {
+                            detectDragGestures { change, drag ->
+                                change.consume()
+                                vm.moveSnapSticker(ui.snapStickerX + drag.x / size.width, ui.snapStickerY + drag.y / size.height)
+                            }
+                        }
+                )
+            }
             focusPoint?.let { p ->
                 Box(
                     Modifier
@@ -468,7 +483,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                 Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
             ) {
-                listOf(Panel.FILTERS to "Фильтр", Panel.EFFECTS to "Эффект", Panel.FRAMES to "Рамка").forEach { (p, t) ->
+                listOf(Panel.FILTERS to "Фильтр", Panel.EFFECTS to "Эффект", Panel.FRAMES to "Рамка", Panel.MASKS to "AR-маска").forEach { (p, t) ->
                     Pill(t, panel == p) { panel = if (panel == p) Panel.NONE else p }
                 }
             }
@@ -480,7 +495,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
             )
 
             // панель выбранного инструмента
-            val panelAllowed = !recordingNow || (liveDuringRec && (panel == Panel.FILTERS || panel == Panel.EFFECTS || panel == Panel.FRAMES))
+            val panelAllowed = !recordingNow || (liveDuringRec && (panel == Panel.FILTERS || panel == Panel.EFFECTS || panel == Panel.FRAMES || panel == Panel.MASKS))
             androidx.compose.animation.AnimatedVisibility(visible = panel != Panel.NONE && panelAllowed) {
                 Box(
                     Modifier
@@ -506,15 +521,21 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                             Text("Текст на фотографии", color = Color.White, fontWeight = FontWeight.SemiBold)
                             OutlinedTextField(value = ui.snapCaption, onValueChange = vm::setSnapCaption,
                                 modifier = Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text("Добавить подпись…") })
-                            Text("Подпись, дата, стикер и рисунок будут встроены в сохранённое фото.", color = Color.LightGray, fontSize = 11.sp)
+                            Text("Подпись, дата, стикер и рисунок встраиваются в фото. При включённой геометке добавляются координаты GPS; погодные значки выбираются вручную и не являются онлайн-прогнозом.", color = Color.LightGray, fontSize = 11.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Pill(if (ui.snapDrawMode) "Рисуй пальцем: ВКЛ" else "Рисовать пальцем", ui.snapDrawMode) { vm.setSnapDrawMode(!ui.snapDrawMode) }
                                 Pill("Очистить рисунок", false) { vm.clearSnapDrawing() }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                listOf("", "✨", "❤️", "🔥", "⭐", "🌸", "🦋").forEach { sticker ->
+                                listOf("", "✨", "❤️", "🔥", "⭐", "🌸", "🦋", "☀️", "☁️", "🌧️", "❄️").forEach { sticker ->
                                     Pill(if (sticker.isBlank()) "Без" else sticker, ui.snapSticker == sticker) { vm.setSnapSticker(sticker) }
                                 }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Размер стикера", color = Color.White, fontSize = 11.sp)
+                                Pill("−", false) { vm.scaleSnapSticker(-0.15f) }
+                                Pill("+", false) { vm.scaleSnapSticker(0.15f) }
+                                Text("Перетащи стикер пальцем в кадре", color = Color.LightGray, fontSize = 10.sp)
                             }
                         }
                         Panel.NONE -> Unit
@@ -535,6 +556,30 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
             if (ui.mode == CameraMode.DUAL && !recordingNow) {
                 LazyRow(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
                     items(com.maysk.camera.DualLayout.entries) { l -> Pill(l.title, ui.dualLayout == l) { vm.setDualLayout(l) } }
+                }
+            }
+            // Быстрый доступ к маскам вынесен из шторки: макияж и животные теперь видны сразу.
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 3.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Pill("Все AR-маски", panel == Panel.MASKS) { panel = if (panel == Panel.MASKS) Panel.NONE else Panel.MASKS }
+                listOf(
+                    com.maysk.camera.camera.ArMask.MAKEUP,
+                    com.maysk.camera.camera.ArMask.GLAM_MAKEUP,
+                    com.maysk.camera.camera.ArMask.CAT,
+                    com.maysk.camera.camera.ArMask.DOG,
+                    com.maysk.camera.camera.ArMask.BUNNY,
+                    com.maysk.camera.camera.ArMask.FOX,
+                    com.maysk.camera.camera.ArMask.PANDA,
+                    com.maysk.camera.camera.ArMask.TIGER,
+                    com.maysk.camera.camera.ArMask.BEAR,
+                    com.maysk.camera.camera.ArMask.CYBER,
+                    com.maysk.camera.camera.ArMask.HEART_EYES,
+                    com.maysk.camera.camera.ArMask.RAINBOW
+                ).forEach { mask ->
+                    Pill("${mask.emoji} ${mask.title}", ui.arMask == mask) { vm.setArMask(if (ui.arMask == mask) com.maysk.camera.camera.ArMask.NONE else mask) }
                 }
             }
             if (!recordingNow) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
@@ -997,18 +1042,18 @@ private fun SnapPanel(vm: CameraViewModel, enabled: Boolean, seconds: Int, openV
     val entries = remember(refresh) { vm.pendingSnaps() }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-            Text("Исчезающие снимки", color = Color.White, fontWeight = FontWeight.SemiBold)
+            Text("Исчезающие фото и видео", color = Color.White, fontWeight = FontWeight.SemiBold)
             Pill(if (enabled) "Режим включён" else "Режим выключен", enabled) { vm.setSnapMode(!enabled) }
         }
-        Text("Фото хранится зашифрованным до 24 часов; после открытия удаляется по выбранному таймеру. Внешняя запись экрана не блокируется.", color = Color.LightGray, fontSize = 11.sp)
+        Text("Фото и завершённые видео хранятся зашифрованными до 24 часов; после первого открытия временная копия удаляется по таймеру. Внешняя запись экрана не блокируется.", color = Color.LightGray, fontSize = 11.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(3, 5, 10, 30).forEach { n -> Pill("${n}с", seconds == n) { vm.setSnapDuration(n) } }
         }
         Text("Ожидают просмотра: ${entries.size}", color = Color.White, fontSize = 12.sp)
         entries.forEach { entry ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Snap ${entry.id.takeLast(6)} · просмотр ${entry.durationSeconds} сек.", color = Color.White, fontSize = 12.sp)
-                Button(onClick = { vm.consumeSnap(entry.id)?.let { openViewer(it, false) }; refresh++ }) { Text("Открыть 1 раз") }
+                Text("${if (entry.isVideo) "Видео" else "Фото"} Snap ${entry.id.takeLast(6)} · просмотр ${entry.durationSeconds} сек.", color = Color.White, fontSize = 12.sp)
+                Button(onClick = { vm.consumeSnap(entry.id)?.let { openViewer(it, entry.isVideo) }; refresh++ }) { Text("Открыть 1 раз") }
             }
         }
     }
@@ -1031,7 +1076,7 @@ private fun MasksPanel(current: com.maysk.camera.camera.ArMask, onSelect: (com.m
                 }
             }
         }
-        Text("Маски отслеживают лицо в реальном времени. Фото сохраняется с маской; в текущей версии видеозаписи маска видна в предпросмотре, но не в итоговом файле.", color = Color.White.copy(alpha = 0.65f), fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
+        Text("Макияж: обычный и вечерний · Животные: кот, щенок, зайка, лисёнок, панда, тигр, медвежонок · Неон: киберпанк, сердца, радуга. Маски отслеживают лицо в предпросмотре и применяются к фото. Запись AR-масок в итоговое видео ещё требует видеокомпозитора.", color = Color.White.copy(alpha = 0.75f), fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
     }
 }
 

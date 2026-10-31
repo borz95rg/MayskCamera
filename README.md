@@ -99,3 +99,8 @@ app/src/main/java/com/maysk/camera/
 ## Snap AR update (2026-10-31)
 
 See [`SNAP_AR_STATUS_RU.md`](SNAP_AR_STATUS_RU.md) for the implemented Snap photo vault, one-view flow, photo text/date overlay, hold-to-record gesture, recording zoom swipe, extra face-anchored overlays, still-image background compositor, and the explicit remaining limitations. Do not treat the remaining 3D/live-video work as completed.
+
+
+### Snap AR additions
+
+The camera now exposes face masks directly in the live camera controls (makeup, glam makeup, cat, dog, bunny, fox, panda, tiger, bear, cyber, heart eyes and rainbow). Completed MP4 recordings can be stored as encrypted one-view video Snaps when Snap mode is enabled. Stickers can be dragged and resized in the preview and are rendered into still photos; GPS coordinates are stamped when geotagging is enabled. See `SNAP_AR_STATUS_RU.md` for exact limitations: current face effects are 2D overlays, not full 3D face meshes, and dynamic overlays/background replacement are not yet encoded into recorded video.

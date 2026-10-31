@@ -41,6 +41,11 @@ enum class ArMask(val title: String, val emoji: String) {
     CYBER("Киберпанк", "⚡"),
     HEART_EYES("Сердца вместо глаз", "💗"),
     RAINBOW("Радужный ореол", "🌈"),
+    PANDA("Панда", "🐼"),
+    TIGER("Тигр", "🐯"),
+    BEAR("Медвежонок", "🐻"),
+    GLAM_MAKEUP("Вечерний макияж", "💋"),
+    FRECKLES("Веснушки", "✨"),
 }
 
 object ArMasks {
@@ -117,7 +122,7 @@ object ArMasks {
                 }
                 c.drawLine(-d * 0.14f, -d * 0.05f, d * 0.14f, -d * 0.05f, line)
             }
-            ArMask.CAT, ArMask.DOG, ArMask.BUNNY -> animal(c, m, d, top)
+            ArMask.CAT, ArMask.DOG, ArMask.BUNNY, ArMask.PANDA, ArMask.TIGER, ArMask.BEAR -> animal(c, m, d, top)
             ArMask.CROWN -> {
                 val gold = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     shader = LinearGradient(0f, top - d * 0.9f, 0f, top, Color.parseColor("#FFE082"), Color.parseColor("#C79100"), Shader.TileMode.CLAMP)
@@ -232,12 +237,30 @@ object ArMasks {
                 c.drawCircle(0f, cy, r, p(Color.argb(230, 230, 236, 240), Paint.Style.STROKE, d * 0.22f))
                 c.drawArc(RectF(-r * 0.75f, cy - r * 0.8f, r * 0.2f, cy), 200f, 60f, false, p(Color.argb(150, 255, 255, 255), Paint.Style.STROKE, d * 0.08f))
             }
-            ArMask.MAKEUP -> {
-                val blush = p(Color.argb(95, 255, 70, 125))
+            ArMask.MAKEUP, ArMask.GLAM_MAKEUP -> {
+                val glam = m == ArMask.GLAM_MAKEUP
+                val blushColor = if (glam) Color.argb(135, 235, 65, 125) else Color.argb(95, 255, 70, 125)
+                val blush = p(blushColor)
                 c.drawOval(RectF(-d * 0.92f, d * 0.35f, -d * 0.42f, d * 0.72f), blush)
                 c.drawOval(RectF(d * 0.42f, d * 0.35f, d * 0.92f, d * 0.72f), blush)
-                val lip = p(Color.argb(210, 220, 35, 95), Paint.Style.STROKE, d * 0.09f)
+                val lip = p(if (glam) Color.parseColor("#C2185B") else Color.argb(210, 220, 35, 95), Paint.Style.STROKE, d * if (glam) 0.13f else 0.09f)
                 c.drawOval(RectF(-d * 0.27f, d * 1.05f, d * 0.27f, d * 1.34f), lip)
+                if (glam) {
+                    val liner = p(Color.BLACK, Paint.Style.STROKE, d * 0.045f)
+                    for (sx in listOf(-1f, 1f)) {
+                        c.drawLine(sx*d*0.18f, -d*0.04f, sx*d*0.48f, -d*0.12f, liner)
+                        c.drawLine(sx*d*0.48f, -d*0.12f, sx*d*0.62f, -d*0.2f, liner)
+                        sparkle(c, sx*d*0.72f, d*0.34f, d*0.07f)
+                    }
+                }
+            }
+            ArMask.FRECKLES -> {
+                val freckle = p(Color.argb(190, 150, 75, 45))
+                for (sx in listOf(-1f, 1f)) for (i in 0..4) {
+                    val x = sx * (d * (0.38f + (i % 3) * 0.12f))
+                    val y = d * (0.43f + (i / 3) * 0.13f)
+                    c.drawCircle(x, y, d * 0.025f, freckle)
+                }
             }
             ArMask.FOX -> {
                 for (sx in listOf(-1f, 1f)) {
@@ -267,6 +290,28 @@ object ArMasks {
 
     private fun animal(c: Canvas, m: ArMask, d: Float, top: Float) {
         when (m) {
+            ArMask.PANDA -> {
+                for (sx in listOf(-1f, 1f)) {
+                    c.drawCircle(sx*d*0.72f, top+d*0.1f, d*0.27f, p(Color.BLACK))
+                    c.drawOval(RectF(sx*d*0.5f-d*0.2f, -d*0.28f, sx*d*0.5f+d*0.2f, d*0.22f), p(Color.BLACK))
+                }
+                c.drawOval(RectF(-d*0.16f, d*0.68f, d*0.16f, d*0.88f), p(Color.BLACK))
+            }
+            ArMask.TIGER -> {
+                for (sx in listOf(-1f, 1f)) {
+                    val ear = Path().apply { moveTo(sx*d*0.48f, top+d*0.1f); lineTo(sx*d*0.78f, top-d*0.45f); lineTo(sx*d*1.05f, top+d*0.18f); close() }
+                    c.drawPath(ear, p(Color.parseColor("#F57C00")))
+                    for (i in 0..2) c.drawLine(sx*d*(0.42f+i*0.17f), d*0.25f, sx*d*(0.55f+i*0.16f), d*0.55f, p(Color.BLACK, Paint.Style.STROKE, d*0.045f))
+                }
+                c.drawOval(RectF(-d*0.15f, d*0.68f, d*0.15f, d*0.86f), p(Color.BLACK))
+            }
+            ArMask.BEAR -> {
+                for (sx in listOf(-1f, 1f)) {
+                    c.drawCircle(sx*d*0.78f, top+d*0.12f, d*0.28f, p(Color.parseColor("#795548")))
+                    c.drawCircle(sx*d*0.78f, top+d*0.12f, d*0.15f, p(Color.parseColor("#D7A77D")))
+                }
+                c.drawOval(RectF(-d*0.18f, d*0.68f, d*0.18f, d*0.9f), p(Color.parseColor("#4E342E")))
+            }
             ArMask.CAT -> {
                 for (sx in listOf(-1f, 1f)) {
                     val outer = Path().apply { moveTo(sx * d * 0.35f, top + d * 0.1f); lineTo(sx * d * 0.85f, top - d * 0.75f); lineTo(sx * d * 1.1f, top + d * 0.25f); close() }
