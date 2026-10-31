@@ -4,7 +4,7 @@
   "title": "Кошка",
   "category": "Кошки",
   "file": "ar_models/cat.glb",
-  "preview": "ar_models/previews/cat.png",
+  "preview": "ar_models/previews/cat.jpg",
   "triangles": 732
  },
  {
@@ -12,7 +12,7 @@
   "title": "Щенок",
   "category": "Собаки",
   "file": "ar_models/dog.glb",
-  "preview": "ar_models/previews/dog.png",
+  "preview": "ar_models/previews/dog.jpg",
   "triangles": 2160
  },
  {
@@ -20,7 +20,7 @@
   "title": "Зайка",
   "category": "Животные",
   "file": "ar_models/bunny.glb",
-  "preview": "ar_models/previews/bunny.png",
+  "preview": "ar_models/previews/bunny.jpg",
   "triangles": 2184
  },
  {
@@ -28,7 +28,7 @@
   "title": "Лиса",
   "category": "Дикие животные",
   "file": "ar_models/fox.glb",
-  "preview": "ar_models/previews/fox.png",
+  "preview": "ar_models/previews/fox.jpg",
   "triangles": 720
  },
  {
@@ -36,7 +36,7 @@
   "title": "Панда",
   "category": "Животные",
   "file": "ar_models/panda.glb",
-  "preview": "ar_models/previews/panda.png",
+  "preview": "ar_models/previews/panda.jpg",
   "triangles": 2160
  },
  {
@@ -44,7 +44,7 @@
   "title": "Тигр",
   "category": "Дикие животные",
   "file": "ar_models/tiger.glb",
-  "preview": "ar_models/previews/tiger.png",
+  "preview": "ar_models/previews/tiger.jpg",
   "triangles": 684
  },
  {
@@ -52,7 +52,7 @@
   "title": "Мишка",
   "category": "Дикие животные",
   "file": "ar_models/bear.glb",
-  "preview": "ar_models/previews/bear.png",
+  "preview": "ar_models/previews/bear.jpg",
   "triangles": 2592
  },
  {
@@ -60,7 +60,7 @@
   "title": "Волк",
   "category": "Дикие животные",
   "file": "ar_models/wolf.glb",
-  "preview": "ar_models/previews/wolf.png",
+  "preview": "ar_models/previews/wolf.jpg",
   "triangles": 648
  },
  {
@@ -68,7 +68,7 @@
   "title": "Лев",
   "category": "Дикие животные",
   "file": "ar_models/lion.glb",
-  "preview": "ar_models/previews/lion.png",
+  "preview": "ar_models/previews/lion.jpg",
   "triangles": 2196
  },
  {
@@ -76,7 +76,7 @@
   "title": "Олень",
   "category": "Дикие животные",
   "file": "ar_models/deer.glb",
-  "preview": "ar_models/previews/deer.png",
+  "preview": "ar_models/previews/deer.jpg",
   "triangles": 3132
  },
  {
@@ -84,7 +84,7 @@
   "title": "Енот",
   "category": "Дикие животные",
   "file": "ar_models/raccoon.glb",
-  "preview": "ar_models/previews/raccoon.png",
+  "preview": "ar_models/previews/raccoon.jpg",
   "triangles": 1136
  },
  {
@@ -92,7 +92,7 @@
   "title": "Сова",
   "category": "Животные",
   "file": "ar_models/owl.glb",
-  "preview": "ar_models/previews/owl.png",
+  "preview": "ar_models/previews/owl.jpg",
   "triangles": 1934
  },
  {
@@ -100,7 +100,7 @@
   "title": "Очки",
   "category": "Очки",
   "file": "ar_models/glasses.glb",
-  "preview": "ar_models/previews/glasses.png",
+  "preview": "ar_models/previews/glasses.jpg",
   "triangles": 2088
  },
  {
@@ -108,7 +108,7 @@
   "title": "Корона",
   "category": "Короны и головные уборы",
   "file": "ar_models/crown.glb",
-  "preview": "ar_models/previews/crown.png",
+  "preview": "ar_models/previews/crown.jpg",
   "triangles": 2860
  },
  {
@@ -116,7 +116,7 @@
   "title": "Маскарад",
   "category": "Фантазия",
   "file": "ar_models/fantasy_mask.glb",
-  "preview": "ar_models/previews/fantasy_mask.png",
+  "preview": "ar_models/previews/fantasy_mask.jpg",
   "triangles": 2944
  }
 ]

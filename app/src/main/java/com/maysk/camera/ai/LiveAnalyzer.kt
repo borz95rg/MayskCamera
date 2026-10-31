@@ -44,7 +44,7 @@ class LiveAnalyzer(
 
     private var lastFaces = 0L
     private var lastFaceMesh = 0L
-    private var faceMeshes: List<FaceMeshInfo> = emptyList()
+    private var faceMeshes: List<FaceMeshInfo?> = emptyList()
     private var lastLabels = 0L
     private var faces: List<FaceInfo> = emptyList()
     private var labels: List<Pair<String, Float>> = emptyList()
@@ -81,7 +81,9 @@ class LiveAnalyzer(
                 // Mesh inference is heavier than box/landmark detection; cap it at ~8 FPS.
                 if (realtimeFaces() && now - lastFaceMesh >= 125) {
                     lastFaceMesh = now
-                    faceMeshes = runBlocking { Vision.faceMeshes(bmp, rotation) }
+                    val raw = runBlocking { Vision.faceMeshes(bmp, rotation) }
+                    // сетка и рамка лица — с одного кадра: подгоняем сетку под ориентиры детектора
+                    faceMeshes = faces.map { f -> bestMesh(f, raw) }
                 }
                 if (realtimeFaces() && faceMeshes.isNotEmpty()) {
                     faces = faces.mapIndexed { index, face -> face.copy(mesh3d = faceMeshes.getOrNull(index)) }
@@ -104,6 +106,35 @@ class LiveAnalyzer(
         } finally {
             image.close()
         }
+    }
+
+    private var calibLog = 0L
+
+    /** Сетка для лица [f]: подгоняется под глаза/нос/рот детектора; выбирается сетка с наименьшей ошибкой. */
+    private fun bestMesh(f: FaceInfo, meshes: List<FaceMeshInfo>): FaceMeshInfo? {
+        if (meshes.isEmpty()) return null
+        val lm = com.maysk.camera.ar3d.MeshCalibration.Landmarks(
+            eyes = f.eyes.map { floatArrayOf(it.x, it.y) },
+            nose = f.nose?.let { floatArrayOf(it.x, it.y) },
+            mouthBottom = f.mouth?.let { floatArrayOf(it.x, it.y) },
+            mouthCorners = listOfNotNull(f.mouthLeft, f.mouthRight).map { floatArrayOf(it.x, it.y) },
+            boxCenter = floatArrayOf(f.box.centerX(), f.box.centerY()),
+            boxWidth = f.box.width(),
+        )
+        var best: FaceMeshInfo? = null; var bestRes = Float.MAX_VALUE
+        for (m in meshes) {
+            val fit = com.maysk.camera.ar3d.MeshCalibration.fit(m.vertices, lm) ?: continue
+            if (fit.residual < bestRes) {
+                val v = com.maysk.camera.ar3d.MeshCalibration.calibrate(m.vertices, lm) ?: continue
+                bestRes = fit.residual; best = FaceMeshInfo(v, m.triangles)
+                val now = SystemClock.elapsedRealtime()
+                if (now - calibLog > 3000) {
+                    calibLog = now
+                    android.util.Log.d("MayskAR", "mesh calib s=%.3f dx=%.3f dy=%.3f pairs=%d res=%.4f".format(fit.s, fit.tx, fit.ty, fit.pairs, fit.residual))
+                }
+            }
+        }
+        return best
     }
 
     /** Средняя яркость в области лица. Бокс в координатах повёрнутого кадра → переводим в буфер. */

@@ -120,7 +120,10 @@ private class StudioItem(
     val onClick: () -> Unit,
 )
 
-private val TABS = listOf("Все", "Животные", "Макияж", "3D", "Украшения", "Фильтры", "Фон", "Рамки", "Избранное")
+private val TABS = listOf("Популярные", "Все", "Животные", "Макияж", "3D", "Украшения", "Фильтры", "Фон", "Рамки", "Избранное")
+
+/** Подборка «Популярные»: самые узнаваемые маски — первыми. */
+private val POPULAR = listOf("tpl:cat", "tpl:puppy", "3d:dog", "tpl:bunny", "3d:cat", "tpl:fox", "tpl:panda", "tpl:crown", "tpl:glasses", "3d:crown", "tpl:hearts_cheeks", "tpl:flower", "tpl:visor", "3d:bunny", "tpl:blush", "tpl:halo")
 
 /**
  * Студия эффектов — отдельный полноэкранный режим поверх живой камеры:
@@ -131,7 +134,7 @@ private val TABS = listOf("Все", "Животные", "Макияж", "3D", "�
 @Composable
 fun EffectsStudio(vm: CameraViewModel, ui: CameraUi, cam: CamState, onClose: () -> Unit) {
     val ctx = LocalContext.current
-    var tab by remember { mutableStateOf("Все") }
+    var tab by remember { mutableStateOf("Популярные") }
     var showSettings by remember { mutableStateOf(false) }
     var favTick by remember { mutableIntStateOf(0) }
     val favs = remember(favTick) { studioFavorites(ctx) }
@@ -151,8 +154,8 @@ fun EffectsStudio(vm: CameraViewModel, ui: CameraUi, cam: CamState, onClose: () 
                 .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            RoundIcon(Icons.AutoMirrored.Filled.ArrowBack, "Назад", onClick = onClose)
-            Text("Эффекты", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).padding(start = 6.dp))
+            RoundIcon(Icons.AutoMirrored.Filled.ArrowBack, "Назад", onClick = { if (showSettings) showSettings = false else onClose() })
+            Text(if (showSettings) "Настройка эффекта" else "Эффекты", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f).padding(start = 6.dp))
             RoundIcon(Icons.Filled.Cameraswitch, "Сменить камеру") { vm.flipCamera() }
             Spacer(Modifier.width(6.dp))
             RoundIcon(Icons.Filled.Tune, "Настроить", active = showSettings) { showSettings = !showSettings }
@@ -227,7 +230,7 @@ private fun Gallery(items: List<StudioItem>, favs: Set<String>, emptyText: Strin
         return
     }
     Box {
-        LazyRow(state = state, contentPadding = PaddingValues(horizontal = 30.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyRow(state = state, contentPadding = PaddingValues(horizontal = 30.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(items, key = { it.key }) { item -> Card(item, item.key in favs) { onFav(item.key) } }
         }
         // стрелки листания
@@ -253,18 +256,19 @@ private fun Gallery(items: List<StudioItem>, favs: Set<String>, emptyText: Strin
 
 @Composable
 private fun Card(item: StudioItem, fav: Boolean, onLong: () -> Unit) {
+    val shape = RoundedCornerShape(16.dp)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.width(74.dp).pointerInput(item.key) {
+        modifier = Modifier.width(70.dp).pointerInput(item.key) {
             detectTapGestures(onTap = { item.onClick() }, onLongPress = { onLong() })
         }
     ) {
         Box(
             Modifier
-                .size(70.dp)
-                .then(if (item.selected) Modifier.border(2.5.dp, SelectedRing, RoundedCornerShape(20.dp)) else Modifier.border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp)))
+                .size(68.dp, 86.dp)
+                .border(if (item.selected) 2.5.dp else 1.dp, if (item.selected) Pink else Color.White.copy(alpha = 0.1f), shape)
                 .padding(if (item.selected) 3.dp else 0.dp)
-                .clip(RoundedCornerShape(if (item.selected) 17.dp else 20.dp))
+                .clip(RoundedCornerShape(if (item.selected) 13.dp else 16.dp))
                 .background(CardBg)
         ) {
             when {
@@ -279,7 +283,8 @@ private fun Card(item: StudioItem, fav: Boolean, onLong: () -> Unit) {
             if (fav) Text("★", color = Color(0xFFFFD54F), fontSize = 12.sp, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp))
         }
         Text(
-            item.title, color = if (item.selected) Teal else Color.White, fontSize = 11.sp, maxLines = 1,
+            item.title, color = if (item.selected) Pink else Color.White, fontSize = 11.sp, maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             fontWeight = if (item.selected) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.padding(top = 4.dp)
         )
     }
@@ -316,66 +321,81 @@ private fun StudioButton(text: String, icon: ImageVector?, modifier: Modifier, f
     }
 }
 
-/** Настройки эффекта и Face Beauty — все ползунки работают сразу, в живом кадре. */
+/**
+ * «Настройка эффекта» (как на эскизе): ползунки со значениями, переключатель «Макияж»,
+ * ряд фонов и большая кнопка «Применить». Всё меняется сразу в живом кадре и пишется в видео.
+ */
 @Composable
 private fun BeautySheet(vm: CameraViewModel, ui: CameraUi, skin: Float, light: Float, eyes: Float, onClose: () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
-            .background(Color(0xF2120E17))
+            .background(Color(0xF7120E17))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
             .navigationBarsPadding()
-            .padding(horizontal = 18.dp, vertical = 12.dp)
+            .padding(horizontal = 20.dp, vertical = 14.dp)
             .verticalScroll(rememberScrollState())
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Настройка эффекта", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            RoundIcon(Icons.Filled.Close, "Закрыть", onClick = onClose)
-        }
-        Spacer(Modifier.height(6.dp))
+        Box(Modifier.align(Alignment.CenterHorizontally).size(40.dp, 4.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.25f)))
+        Spacer(Modifier.height(8.dp))
         BeautySlider("Сглаживание кожи", skin) { v -> if (!ui.beautyOn) vm.setBeauty(true); vm.updateSettings({ it.copy(beautySkin = v) }) }
         BeautySlider("Тон кожи", ui.beautyTone) { vm.setFaceBeauty(tone = it) }
-        BeautySlider("Осветление лица", light) { v -> if (!ui.beautyOn) vm.setBeauty(true); vm.updateSettings({ it.copy(beautyFace = v) }) }
-        BeautySlider("Румянец", ui.blush) { vm.setFaceBeauty(blush = it) }
-        BeautySlider("Губы", ui.lips) { vm.setFaceBeauty(lips = it) }
-        BeautySlider("Увеличение глаз · на фото", eyes) { v -> if (!ui.beautyOn) vm.setBeauty(true); vm.updateSettings({ it.copy(beautyEyes = v) }) }
+        BeautySlider("Осветление", light) { v -> if (!ui.beautyOn) vm.setBeauty(true); vm.updateSettings({ it.copy(beautyFace = v) }) }
+        BeautySlider("Увеличение глаз", eyes, hint = "на фото") { v -> if (!ui.beautyOn) vm.setBeauty(true); vm.updateSettings({ it.copy(beautyEyes = v) }) }
         BeautySlider("Интенсивность эффекта", ui.effectAlpha) { vm.setEffectAlpha(it) }
-        Text("Фон", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp, bottom = 6.dp))
+        // «Макияж»: румянец + блеск губ одним переключателем, тонкая настройка — ползунками ниже
+        val makeup = ui.blush > 0.01f || ui.lips > 0.01f
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Макияж", color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            androidx.compose.material3.Switch(
+                checked = makeup,
+                onCheckedChange = { on -> if (on) vm.setFaceBeauty(blush = 0.45f, lips = 0.5f) else vm.setFaceBeauty(blush = 0f, lips = 0f) },
+                colors = androidx.compose.material3.SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Pink, uncheckedTrackColor = Color.White.copy(alpha = 0.15f))
+            )
+        }
+        if (makeup) {
+            BeautySlider("Румянец", ui.blush) { vm.setFaceBeauty(blush = it) }
+            BeautySlider("Губы", ui.lips) { vm.setFaceBeauty(lips = it) }
+        }
+        Text("Фон", color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp, bottom = 8.dp))
         val ctx = LocalContext.current
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             item { BgChip("Без фона", null, ui.bgId == null) { vm.setBackground(null) } }
             item { BgChip("Размытие", null, ui.bgId == "blur") { vm.setBackground("blur") } }
             items(EffectTemplates.pack(ctx).backgrounds, key = { it.id }) { b -> BgChip(b.title, b.thumb, ui.bgId == b.id) { vm.setBackground(b.id) } }
         }
-        Spacer(Modifier.height(12.dp))
-        StudioButton("Сбросить всё", Icons.Filled.Close, Modifier.fillMaxWidth(), filled = false) { vm.resetStudio() }
+        Spacer(Modifier.height(14.dp))
+        StudioButton("Применить", null, Modifier.fillMaxWidth(), filled = true, onClick = onClose)
         Text(
-            "Увеличение глаз и коррекция формы лица пока применяются к фото после снимка. Остальное видно сразу и пишется в видео.",
-            color = Color.White.copy(alpha = 0.5f), fontSize = 10.sp, modifier = Modifier.padding(top = 8.dp)
+            "Сбросить всё", color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp, textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().clickable { vm.resetStudio() }.padding(top = 12.dp, bottom = 2.dp)
         )
     }
 }
 
 @Composable
-private fun BeautySlider(label: String, value: Float, onChange: (Float) -> Unit) {
-    Column(Modifier.padding(vertical = 2.dp)) {
-        Row {
-            Text(label, color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
-            Text("${(value * 100).toInt()}", color = Teal, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+private fun BeautySlider(label: String, value: Float, hint: String? = null, onChange: (Float) -> Unit) {
+    Column(Modifier.padding(top = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, color = Color.White, fontSize = 14.sp)
+            if (hint != null) Text("  · $hint", color = Color.White.copy(alpha = 0.45f), fontSize = 11.sp)
+            Spacer(Modifier.weight(1f))
+            Text("${(value * 100).toInt()}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         }
         Slider(
             value = value, onValueChange = onChange, valueRange = 0f..1f,
-            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Pink, inactiveTrackColor = Color.White.copy(alpha = 0.15f)),
-            modifier = Modifier.height(30.dp)
+            colors = SliderDefaults.colors(thumbColor = Pink, activeTrackColor = Pink, inactiveTrackColor = Color.White.copy(alpha = 0.15f)),
+            modifier = Modifier.height(28.dp)
         )
     }
 }
 
 @Composable
 private fun BgChip(title: String, thumb: String?, selected: Boolean, onClick: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(58.dp).clickable(onClick = onClick)) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(66.dp).clickable(onClick = onClick)) {
         Box(
-            Modifier.size(52.dp)
+            Modifier.size(62.dp)
                 .then(if (selected) Modifier.border(2.dp, SelectedRing, RoundedCornerShape(14.dp)) else Modifier)
                 .clip(RoundedCornerShape(14.dp)).background(CardBg),
             contentAlignment = Alignment.Center
@@ -396,7 +416,11 @@ private fun studioItems(ctx: Context, vm: CameraViewModel, ui: CameraUi, tab: St
     fun tpl(f: com.maysk.camera.ar3d.EffectTemplateData.Face) = StudioItem("tpl:${f.id}", f.title, f.thumb, ui.faceTpl == f.id) { vm.setFaceTemplate(if (ui.faceTpl == f.id) null else f.id) }
     fun model(e: com.maysk.camera.ar3d.ArCatalogEntry) = StudioItem("3d:${e.id}", e.title, e.preview, ui.ar3d == e.id, badge = "3D") { vm.setAr3d(if (ui.ar3d == e.id) null else e.id) }
     val animalCats = setOf("Кошки", "Собаки", "Животные", "Дикие животные")
+    val none = StudioItem("none", "Без эффекта", "effects/thumbs/none.jpg", ui.ar3d == null && ui.faceTpl == null) {
+        vm.setAr3d(null); vm.setFaceTemplate(null)
+    }
     val faces: List<StudioItem> = pack.faces.map(::tpl) + models.map(::model)
+    val byKey = faces.associateBy { it.key }
     val filters = Filters.all.map { f ->
         StudioItem("flt:${f.id}", f.name, null, ui.filterId == f.id, render = {
             com.maysk.camera.ui.components.FilterThumb(live ?: com.maysk.camera.ui.components.filterSample, f, Modifier.fillMaxSize())
@@ -416,11 +440,12 @@ private fun studioItems(ctx: Context, vm: CameraViewModel, ui: CameraUi, tab: St
             StudioItem("fr:${st.name}", st.title, null, ui.frame?.style == st && ui.frame?.image == null, render = { FrameThumb(st) }) { vm.setFrame(Frames.default(st)) }
         }
     return when (tab) {
-        "Все" -> faces
-        "Животные" -> pack.faces.filter { it.category == "Животные" }.map(::tpl) + models.filter { it.category in animalCats }.map(::model)
-        "Макияж" -> pack.faces.filter { it.category == "Макияж" }.map(::tpl)
-        "3D" -> models.map(::model) + pack.faces.filter { it.category == "3D-эффекты" }.map(::tpl)
-        "Украшения" -> pack.faces.filter { it.category == "Украшения" }.map(::tpl) + models.filter { it.category !in animalCats }.map(::model)
+        "Популярные" -> listOf(none) + POPULAR.mapNotNull { byKey[it] }
+        "Все" -> listOf(none) + faces
+        "Животные" -> listOf(none) + pack.faces.filter { it.category == "Животные" }.map(::tpl) + models.filter { it.category in animalCats }.map(::model)
+        "Макияж" -> listOf(none) + pack.faces.filter { it.category == "Макияж" }.map(::tpl)
+        "3D" -> listOf(none) + models.map(::model) + pack.faces.filter { it.category == "3D-эффекты" }.map(::tpl)
+        "Украшения" -> listOf(none) + pack.faces.filter { it.category == "Украшения" }.map(::tpl) + models.filter { it.category !in animalCats }.map(::model)
         "Фильтры" -> filters
         "Фон" -> bgs
         "Рамки" -> frames

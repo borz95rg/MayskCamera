@@ -111,6 +111,7 @@ class GlEffectProcessor : SurfaceProcessor {
         if (ovTex == 0) {
             val t = IntArray(1); GLES20.glGenTextures(1, t, 0); ovTex = t[0]
         }
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE2)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ovTex)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
@@ -442,6 +443,9 @@ class GlEffectProcessor : SurfaceProcessor {
     private val bgA = FloatArray(16); private val bgTmp = FloatArray(16); private val bgMat = FloatArray(16); private val prevInvBg = FloatArray(16)
 
     private fun ensureBgTextures(b: Background) {
+        // Загрузка — на «своём» блоке 5: иначе текстура маски попадала в активный блок 2 (рамка)
+        // и вместо рамки на экран выводилась чёрно-белая маска человека.
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE5)
         if (bgMaskTex == 0) {
             val t = IntArray(2); GLES20.glGenTextures(2, t, 0); bgMaskTex = t[0]; bgImgTex = t[1]
             for (id in t) {
@@ -551,8 +555,8 @@ class GlEffectProcessor : SurfaceProcessor {
         GLES20.glUniform1f(u("uWarmSat"), p.warmSat)
         GLES20.glUniform4fv(u("uFocus"), 1, p.focus, 0)
         val lutOn = p.lut != null && p.lutMix > 0.01f
-        ensureLut(p.lut)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+        ensureLut(p.lut)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lutTex)
         GLES20.glUniform1i(u("uLut"), 1)
         GLES20.glUniform1f(u("uLutMix"), if (lutOn) p.lutMix else 0f)

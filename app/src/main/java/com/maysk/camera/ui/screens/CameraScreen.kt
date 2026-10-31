@@ -56,6 +56,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PhotoFilter
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Timer
@@ -337,10 +338,10 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
             // Рамка видна в кадре ещё до снимка
             // рамка рисуется в самом кадре (GL); Compose-слой — только запасной вариант или «размытый фон» фото
             ui.frame?.takeIf { !(isVideo && it.style.photoOnly) && (!cam.effectsActive || it.style.photoOnly) }?.let { FrameLiveOverlay(it) }
-            if (settings.grid) GridOverlay()
-            if (settings.horizon && !recordingNow) HorizonOverlay()
+            if (settings.grid && !studioOpen) GridOverlay()
+            if (settings.horizon && !recordingNow && !studioOpen) HorizonOverlay()
             if (ui.arMask != com.maysk.camera.camera.ArMask.NONE) ArMaskOverlay(live.faces, ui.arMask, cam.front)
-            else if (ui.ar3d == null) FaceOverlay(live.faces.map { it.box }, cam.front)
+            else if (!vm.arActive() && !studioOpen) FaceOverlay(live.faces.map { it.box }, cam.front)
             if (ui.snapDrawing.isNotEmpty() || ui.snapDrawMode) Canvas(
                 Modifier.fillMaxSize().pointerInput(ui.snapDrawMode) {
                     if (ui.snapDrawMode) detectDragGestures(
@@ -578,12 +579,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                     items(com.maysk.camera.DualLayout.entries) { l -> Pill(l.title, ui.dualLayout == l) { vm.setDualLayout(l) } }
                 }
             }
-            // В обычном режиме категории скрыты: пользователь открывает их отдельной кнопкой справа.
-            if (!recordingNow) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
-                Pill(if (ui.snapMode) "Snap: ВКЛ" else "Snap", ui.snapMode) { vm.setSnapMode(!ui.snapMode); panel = Panel.SNAP }
-                Pill("Текст / дата", panel == Panel.OVERLAY || ui.snapCaption.isNotBlank()) { panel = if (panel == Panel.OVERLAY) Panel.NONE else Panel.OVERLAY }
-                Pill("Мои Snap", panel == Panel.SNAP) { panel = if (panel == Panel.SNAP) Panel.NONE else Panel.SNAP }
-            }
+            // Snap, «Текст / дата» и «Мои Snap» перенесены в шторку «Ещё» — лицо и эффекты ничто не закрывает.
             ZoomBar(cam.zoom, cam.minZoom, cam.maxZoom, cam.hasUltraWide, ui.ultraWide, Modifier.align(Alignment.CenterHorizontally).padding(vertical = 6.dp)) { vm.selectZoom(it) }
 
             if (!recordingNow) {
@@ -594,7 +590,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                         .clickable { drawerOpen = !drawerOpen; if (!drawerOpen) panel = Panel.NONE }
                         .padding(horizontal = 30.dp, vertical = 2.dp)
                 ) {
-                    Text(if (drawerOpen) "︾" else "︽", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
+                    Text(if (drawerOpen) "︾  Скрыть" else "︽  Ещё", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
                 }
                 ModeStrip(ui.mode, onSelect = {
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -700,6 +696,7 @@ private fun ToolsDrawer(
         add(Tile(Icons.Filled.Mood, "AR маски", ui.arMask != com.maysk.camera.camera.ArMask.NONE) { onPanel(Panel.MASKS) })
         add(Tile(Icons.Filled.Timer, "Snap", ui.snapMode) { vm.setSnapMode(!ui.snapMode); onPanel(Panel.SNAP) })
         add(Tile(Icons.Filled.AutoFixHigh, "Текст / дата", ui.snapCaption.isNotBlank()) { onPanel(Panel.OVERLAY) })
+        add(Tile(Icons.Filled.PhotoLibrary, "Мои Snap", panel == Panel.SNAP) { onPanel(Panel.SNAP) })
         add(Tile(Icons.Filled.Exposure, "EV", panel == Panel.EV) { onPanel(Panel.EV) })
         add(Tile(Icons.Filled.CropFree, "Рамки", ui.frame != null) { onPanel(Panel.FRAMES) })
         if (!isVideo) add(Tile(Icons.Filled.HdrOn, "HDR", ui.hdr) { vm.toggleHdr() })
