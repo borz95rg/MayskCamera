@@ -353,14 +353,15 @@ varying vec2 vUv;
 void main() {
     vec3 cur = texture2D(uCur, vUv).rgb;
     vec3 prev = texture2D(uPrev, vUv).rgb;
-    // разницу оцениваем по слегка размытому кадру — шум не принимается за движение
+    // Разницу оцениваем по локально сглаженному текущему кадру: шум сенсора
+    // меньше похож на движение, а реальные перемещения берутся из текущего кадра.
     vec3 curB = (cur * 2.0 + texture2D(uCur, vUv + vec2(uTexel.x, 0.0)).rgb + texture2D(uCur, vUv - vec2(uTexel.x, 0.0)).rgb
                + texture2D(uCur, vUv + vec2(0.0, uTexel.y)).rgb + texture2D(uCur, vUv - vec2(0.0, uTexel.y)).rgb) / 6.0;
     float d = abs(dot(curB - prev, vec3(0.299, 0.587, 0.114)));
     float lum = dot(cur, vec3(0.299, 0.587, 0.114));
     // в тенях шум сильнее — порог выше
-    float th = mix(0.05, 0.025, smoothstep(0.1, 0.5, lum));
-    float w = uStrength * (1.0 - smoothstep(th, th * 3.0, d));
+    float th = mix(0.035, 0.018, smoothstep(0.1, 0.5, lum));
+    float w = uStrength * (1.0 - smoothstep(th, th * 2.5, d));
     gl_FragColor = vec4(mix(cur, prev, w), 1.0);
 }
 """

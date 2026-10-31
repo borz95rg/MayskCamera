@@ -68,7 +68,7 @@ data class AppSettings(
     val stabInvertY: Boolean = false,
     val colorProfile: ColorProfile = ColorProfile.STANDARD,
     val bitrate: Bitrate = Bitrate.HIGH,
-    val audioMode: AudioMode = AudioMode.VOICE,
+    val audioMode: AudioMode = AudioMode.NORMAL,
     // AI улучшение видео
     val aiVideoEnabled: Boolean = true,
     val aiVideoLight: Boolean = true,

@@ -29,7 +29,7 @@ enum class CameraMode(
     FOOD("Еда", "Яркие цвета", ModeGroup.PHOTO, filterId = "food", evBias = 1),
     MACRO("Макро", "Съёмка крупным планом", ModeGroup.SPECIAL, tip = "Поднесите камеру близко к объекту"),
     DOCUMENT("Документы", "Сканер", ModeGroup.SPECIAL),
-    PANORAMA("Панорама", "360° панорама", ModeGroup.SPECIAL, tip = "Плавно двигайте камеру в указанном направлении"),
+    PANORAMA("Панорама", "Широкая панорама", ModeGroup.SPECIAL, tip = "Плавно двигайте камеру в одном направлении; угол зависит от совпадения кадров"),
     PET("Питомцы", "Быстрый затвор", ModeGroup.SPECIAL, filterId = "vivid"),
     BABY("Дети", "Мягкие тона", ModeGroup.SPECIAL, filterId = "soft_portrait"),
     CAR("Авто", "Блеск и контраст", ModeGroup.SPECIAL, filterId = "hollywood"),
@@ -37,11 +37,11 @@ enum class CameraMode(
     BOOMERANG("Бумеранг", "Видео туда-обратно", ModeGroup.SPECIAL, tip = "Держите затвор — 10 кадров превратятся в зацикленное видео"),
     // Видео
     VIDEO("Видео", "Обычное (1080p)", ModeGroup.VIDEO, isVideo = true),
-    VIDEO_4K("4K", "4K / 60fps", ModeGroup.VIDEO, isVideo = true),
+    VIDEO_4K("4K", "4K · частота по возможностям камеры", ModeGroup.VIDEO, isVideo = true),
     VIDEO_8K("Макс. качество", "Максимум телефона (обычно 4K)", ModeGroup.VIDEO, isVideo = true),
-    SLOW_MOTION("Замедленная", "Макс. fps камеры, замедление ×2", ModeGroup.VIDEO, isVideo = true),
+    SLOW_MOTION("Замедленная", "Программное замедление ×2", ModeGroup.VIDEO, isVideo = true),
     TIMELAPSE("Таймлапс", "Ускоренное видео", ModeGroup.VIDEO, isVideo = true),
-    CINEMATIC("Кино режим", "24 fps, кино-цвет, плашки", ModeGroup.VIDEO, isVideo = true, filterId = "cinema"),
+    CINEMATIC("Кино режим", "Киноцвет и плашки · fps камеры", ModeGroup.VIDEO, isVideo = true, filterId = "cinema"),
     LOG("Лог режим", "Плоский профиль", ModeGroup.VIDEO, isVideo = true),
     VLOG("Влог", "Фронтальная, стабилизация", ModeGroup.VIDEO, isVideo = true, filterId = "natural_skin"),
     INTERVIEW("Интервью", "Фокус на голос и лицо", ModeGroup.VIDEO, isVideo = true, filterId = "studio");

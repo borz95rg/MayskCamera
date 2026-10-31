@@ -657,7 +657,9 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 beautySkin = if (beauty) s.beautySkin else 0f,
                 beautyEyes = if (beauty) s.beautyEyes else 0f,
                 beautyFace = if (beauty) s.beautyFace else 0f,
-                aiAuto = u.mode == CameraMode.AI_AUTO || (u.aiPro && s.smartAi && u.mode != CameraMode.PRO),
+                aiAuto = u.mode != CameraMode.NIGHT && (u.mode == CameraMode.AI_AUTO || (u.aiPro && s.smartAi && u.mode != CameraMode.PRO)),
+                // Реально подключаем коррекцию бочки для сверхширокого объектива к сохранённому фото.
+                undistort = if (u.ultraWide || c.zoom < 0.95f) 0.22f else 0f,
                 portraitBlur = u.mode == CameraMode.PORTRAIT && ext != ExtensionMode.BOKEH,
                 sharpen = if (u.mode == CameraMode.MACRO || u.mode == CameraMode.CAR) 0.2f else 0f,
                 clarity = when {
@@ -807,10 +809,10 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         if (u.flash == FlashMode.ON) controller.setTorch(true)
         if (settings.value.shutterSound) runCatching { sound.play(MediaActionSound.START_VIDEO_RECORDING) }
         // ночью баланс белого фиксируется на всю запись
-        if (u.nightVideo || controller.lowLight) controller.updateAwbLock(true)
+        if (u.nightVideo || controller.lowLight) controller.setAwbLock(true)
         val ok = controller.startRecording(withAudio) fin@{ uri, err ->
             controller.setTorch(false)
-            controller.updateAwbLock(false)
+            controller.setAwbLock(false)
             if (settings.value.shutterSound) runCatching { sound.play(MediaActionSound.STOP_VIDEO_RECORDING) }
             if (uri == null) { toast(err ?: "Видео не сохранено"); return@fin }
             viewModelScope.launch { postProcessVideo(uri, u.mode, withAudio) }
@@ -907,7 +909,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         val gyroOk = stabilizer.available
         panoHold = true
         if (gyroOk) stabilizer.start()
-        controller.updateAeAwbLock(true)
+        controller.setAeAwbLock(true)
         val tanU = (controller.fovTangents().first / cam.value.zoom.coerceAtLeast(0.3f)).coerceIn(0.15f, 1.5f)
         val fov = 2f * kotlin.math.atan(tanU)
         // следующий кадр — после поворота на ~15–20°, но с перекрытием не меньше ~55%
@@ -975,7 +977,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     if (progress >= 1f) break
                 }
             } finally {
-                controller.updateAeAwbLock(false)
+                controller.setAeAwbLock(false)
                 panoHold = false
                 configureStabilizer()
             }

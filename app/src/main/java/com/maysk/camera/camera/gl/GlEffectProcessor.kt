@@ -92,8 +92,8 @@ class GlEffectProcessor : SurfaceProcessor {
 
     private var surfaceTexture: SurfaceTexture? = null
     private var ovTex = 0
-    /** ID входной OES-текстуры CameraX; нужна временному шумодаву как текущий кадр. */
-    private var cameraOesTex = 0
+    /** OES texture owned by the current CameraX input surface; used by temporal NR. */
+    @Volatile private var cameraTextureId = 0
     private var ovKey: Any? = null
     private val previewM = FloatArray(16)
     private val previewInv = FloatArray(16)
@@ -240,13 +240,13 @@ class GlEffectProcessor : SurfaceProcessor {
         EGL14.eglMakeCurrent(display, pbuffer, pbuffer, context)
         val tex = IntArray(1)
         GLES20.glGenTextures(1, tex, 0)
-        cameraOesTex = tex[0]
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, tex[0])
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
 
+        cameraTextureId = tex[0]
         val st = SurfaceTexture(tex[0])
         st.setDefaultBufferSize(request.resolution.width, request.resolution.height)
         val surface = Surface(st)
@@ -259,8 +259,7 @@ class GlEffectProcessor : SurfaceProcessor {
             surface.release()
             EGL14.eglMakeCurrent(display, pbuffer, pbuffer, context)
             GLES20.glDeleteTextures(1, tex, 0)
-            if (cameraOesTex == tex[0]) cameraOesTex = 0
-            if (surfaceTexture === st) surfaceTexture = null
+            if (surfaceTexture === st) { surfaceTexture = null; cameraTextureId = 0 }
         }
     }
 
@@ -318,7 +317,7 @@ class GlEffectProcessor : SurfaceProcessor {
         }
 
         // Временное шумоподавление ночного видео (в координатах кадра камеры)
-        val cleanTex = if (p.temporal > 0.01f) temporalPass(p.temporal.coerceAtMost(0.85f)) else { fboFrames = 0; 0 }
+        val cleanTex = if (p.temporal > 0.01f) temporalPass(p.temporal.coerceAtMost(0.55f)) else { fboFrames = 0; 0 }
         useProgram2D = cleanTex != 0
 
         // Рамка для видео: координаты кадра видео → координаты превью (как видит пользователь).
@@ -447,19 +446,15 @@ class GlEffectProcessor : SurfaceProcessor {
 
     /** Проход «кадр камеры + предыдущий результат → FBO». Возвращает текстуру с очищенным кадром или 0. */
     private fun temporalPass(strength: Float): Int {
-        if (progTemporal == 0 || program2D == 0) return 0
+        val sourceTexture = cameraTextureId
+        if (progTemporal == 0 || program2D == 0 || sourceTexture == 0) return 0
         if (!ensureFbo(inputSize)) return 0
         val prev = fboCur; val cur = 1 - fboCur
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[cur])
         GLES20.glViewport(0, 0, inputSize.width, inputSize.height)
         GLES20.glUseProgram(progTemporal)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-        // Не полагаемся на побочный GL-binding: явно возвращаем текущий кадр CameraX.
-        if (cameraOesTex == 0) {
-            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
-            return 0
-        }
-        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, cameraOesTex)
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, sourceTexture)
         GLES20.glUniform1i(GLES20.glGetUniformLocation(progTemporal, "uCur"), 0)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE4)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex[prev])

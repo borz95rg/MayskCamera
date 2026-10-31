@@ -402,12 +402,12 @@ class CameraController(private val context: Context) {
     private var zoomSource: LiveData<ZoomState>? = null
 
     /** Собирает все Camera2-параметры запроса в одном месте. */
-    @Volatile var aeAwbLock = false
+    @Volatile private var aeAwbLockEnabled = false
 
-    fun updateAeAwbLock(on: Boolean) { aeAwbLock = on; applyRequestOptions() }
+    fun setAeAwbLock(on: Boolean) { aeAwbLockEnabled = on; applyRequestOptions() }
 
-    @Volatile var awbLock = false
-    fun updateAwbLock(on: Boolean) { if (awbLock != on) { awbLock = on; applyRequestOptions() } }
+    @Volatile private var awbLockEnabled = false
+    fun setAwbLock(on: Boolean) { if (awbLockEnabled != on) { awbLockEnabled = on; applyRequestOptions() } }
 
     fun applyRequestOptions(m: ManualSettings = manual) {
         manual = m
@@ -487,10 +487,10 @@ class CameraController(private val context: Context) {
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_MACRO)
 
         // Блокировка экспозиции и баланса белого (панорама — чтобы швы не отличались по яркости)
-        if (aeAwbLock) {
+        if (aeAwbLockEnabled) {
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, true)
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, true)
-        } else if (awbLock) {
+        } else if (awbLockEnabled) {
             // ночное видео: баланс белого фиксируется в начале записи — не прыгает в сине-фиолетовый
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, true)
         }

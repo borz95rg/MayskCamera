@@ -79,7 +79,7 @@ object Filters {
 
     val ORIGINAL = Filter("original", "Оригинал", null, cm { })
 
-    /** 29 ручных фильтров + «Оригинал». Каждый — свой приём, без генератора вариаций. */
+    /** 35 ручных фильтров + «Оригинал». Каждый — свой приём, без генератора вариаций. */
     val all: List<Filter> = listOf(
         ORIGINAL,
         // ---------- Кино ----------
@@ -148,6 +148,21 @@ object Filters {
             tone = T(0.5f, g = 1.15f, lift = 0.06f, sh = c(0f, 0.03f, 0.05f), hi = c(0.03f, 0.02f, -0.02f))),
         Filter("retro_pop", "Ретро-поп", FilterCategory.SOCIAL, cm { sat(1.4f) }, grain = 0.2f,
             tone = T(0.5f, lift = 0.05f, sh = c(0.03f, 0f, 0.07f), hi = c(0.07f, 0.04f, -0.06f))),
+        // ---------- Новые повседневные рецепты ----------
+        Filter("soft_morning", "Утро", FilterCategory.PORTRAIT, cm { sat(0.92f); scale(1.03f, 1.01f, 0.98f) },
+            tone = T(-0.25f, g = 0.92f, lift = 0.045f, hi = c(0.04f, 0.025f, 0.01f))),
+        Filter("cream", "Кремовый", FilterCategory.WEDDING, cm { sat(0.82f); scale(1.04f, 1.01f, 0.94f) },
+            tone = T(-0.2f, g = 0.94f, lift = 0.055f, sh = c(0.025f, 0.015f, -0.005f))),
+        Filter("urban_clean", "Город", FilterCategory.STREET, cm { sat(1.08f) }, vignette = 0.12f,
+            tone = T(0.35f, g = 0.98f, sh = c(-0.015f, 0.005f, 0.025f))),
+        Filter("emerald", "Изумруд", FilterCategory.LUXURY, cm { sat(1.12f); scale(0.97f, 1.04f, 1.01f) }, vignette = 0.22f,
+            tone = T(0.45f, sh = c(-0.025f, 0.035f, 0.015f), hi = c(0.025f, 0.035f, 0.01f))),
+        Filter("ocean_air", "Морской воздух", FilterCategory.TRAVEL, cm { sat(1.12f); scale(0.96f, 1.02f, 1.08f) },
+            tone = T(0.22f, sh = c(-0.015f, 0.02f, 0.06f), hi = c(-0.01f, 0.02f, 0.035f))),
+        Filter("amber_evening", "Тёплый вечер", FilterCategory.VINTAGE, cm { sat(0.94f); scale(1.06f, 1.01f, 0.91f) }, grain = 0.12f, vignette = 0.18f,
+            tone = T(0.28f, lift = 0.025f, sh = c(0.035f, 0.012f, -0.025f), hi = c(0.075f, 0.035f, -0.055f))),
+        Filter("night_cinema", "Ночной кино", FilterCategory.NIGHT, cm { sat(0.9f); scale(1.02f, 1.01f, 1.04f) }, vignette = 0.24f,
+            tone = T(0.32f, lift = 0.025f, sh = c(0.015f, 0.025f, 0.06f), hi = c(0.035f, 0.02f, -0.015f))),
     )
 
     fun search(query: String, category: FilterCategory?): List<Filter> {

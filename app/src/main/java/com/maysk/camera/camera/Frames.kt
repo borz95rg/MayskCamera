@@ -63,6 +63,10 @@ enum class FrameStyle(val title: String, val category: String, val photoOnly: Bo
     // Люкс
     GOLD("Золото", "Люкс"),
     BLACK_GOLD("Чёрное золото", "Люкс"),
+    AURA("Аура", "Настроение"),
+    BOTANICAL("Ботаника", "Настроение"),
+    LUXE_CORNERS("Уголки люкс", "Люкс"),
+    CLEAN_STORY("Чистая история", "Соцсети"),
     ;
 
     companion object {
@@ -126,6 +130,10 @@ object Frames {
         FrameStyle.TRAVEL -> FrameSpec(style, col("#F4E3C1"), 0.45f, caption = "TRAVEL")
         FrameStyle.GOLD -> FrameSpec(style, col("#D4AF37"), 0.5f)
         FrameStyle.BLACK_GOLD -> FrameSpec(style, col("#D4AF37"), 0.55f, caption = "LUXURY")
+        FrameStyle.AURA -> FrameSpec(style, col("#C77DFF"), 0.42f)
+        FrameStyle.BOTANICAL -> FrameSpec(style, col("#7C9A72"), 0.42f)
+        FrameStyle.LUXE_CORNERS -> FrameSpec(style, col("#D4AF37"), 0.4f)
+        FrameStyle.CLEAN_STORY -> FrameSpec(style, Color.WHITE, 0.3f, caption = "maysk.camera")
     }
 
     // ------------------------------------------------------------------ публичный API
@@ -705,6 +713,47 @@ object Frames {
                 c.drawCircle(px, py - s * 0.025f, s * 0.022f, paint(withAlpha(col("#FF2E63"), a)))
                 c.drawPath(Path().apply { moveTo(px - s * 0.019f, py - s * 0.018f); lineTo(px, py + s * 0.012f); lineTo(px + s * 0.019f, py - s * 0.018f); close() }, paint(withAlpha(col("#FF2E63"), a)))
                 c.drawCircle(px, py - s * 0.025f, s * 0.008f, paint(withAlpha(Color.WHITE, a)))
+            }
+            FrameStyle.AURA -> {
+                val m = s * 0.045f
+                val glow = paint(withAlpha(f.color, a * 0.55f), Paint.Style.STROKE, s * 0.012f)
+                glow.maskFilter = BlurMaskFilter(s * 0.018f, BlurMaskFilter.Blur.NORMAL)
+                c.drawRoundRect(RectF(m, m, W - m, H - m), s * 0.035f, s * 0.035f, glow)
+                c.drawRoundRect(RectF(m, m, W - m, H - m), s * 0.035f, s * 0.035f, paint(color, Paint.Style.STROKE, s * 0.003f))
+                listOf(m to m, W - m to m, m to H - m, W - m to H - m).forEach { (x, y) -> sparkle(c, x, y, s * 0.018f, paint(withAlpha(Color.WHITE, a))) }
+            }
+            FrameStyle.BOTANICAL -> {
+                val ink = paint(withAlpha(f.color, a), Paint.Style.STROKE, s * 0.0035f)
+                val edge = s * 0.075f
+                for (side in 0..1) {
+                    val x = if (side == 0) edge * 0.35f else W - edge * 0.35f
+                    for (i in 0..5) {
+                        val y = H * (0.12f + i * 0.15f)
+                        val direction = if (side == 0) 1f else -1f
+                        leaf(c, x, y, s * 0.025f, direction * (if (i % 2 == 0) -35f else 35f), paint(withAlpha(f.color, a * 0.85f)))
+                    }
+                }
+                c.drawRoundRect(RectF(edge, edge, W - edge, H - edge), s * 0.02f, s * 0.02f, ink)
+            }
+            FrameStyle.LUXE_CORNERS -> {
+                val m = s * 0.055f; val len = s * 0.11f
+                val gp = paint(color, Paint.Style.STROKE, s * 0.006f)
+                gp.shader = LinearGradient(0f, 0f, W, H, intArrayOf(col("#8C6B1F"), col("#FFF0A8"), col("#B8892B")), null, Shader.TileMode.CLAMP)
+                val corners = listOf((m to m) to (1f to 1f), (W-m to m) to (-1f to 1f), (m to H-m) to (1f to -1f), (W-m to H-m) to (-1f to -1f))
+                for ((point, dir) in corners) {
+                    val (x, y) = point; val (dx, dy) = dir
+                    c.drawLine(x, y, x + dx * len, y, gp); c.drawLine(x, y, x, y + dy * len, gp)
+                    c.drawCircle(x, y, s * 0.008f, paint(withAlpha(col("#F7E7A1"), a)))
+                }
+            }
+            FrameStyle.CLEAN_STORY -> {
+                val m = s * 0.045f
+                c.drawRoundRect(RectF(m, m, W-m, H-m), s * 0.018f, s * 0.018f, paint(color, Paint.Style.STROKE, s * 0.003f))
+                if (f.caption.isNotBlank()) {
+                    val tp = text(withAlpha(f.color, a * 0.9f), s * 0.035f, Typeface.create("sans-serif-medium", Typeface.NORMAL), Paint.Align.CENTER)
+                    c.drawText(f.caption, W/2f, H - m * 0.45f, tp)
+                }
+                sparkle(c, W - m * 1.25f, m * 1.25f, s * 0.014f, paint(withAlpha(f.color, a)))
             }
             FrameStyle.GOLD -> {
                 val gp = paint(0)
