@@ -32,7 +32,10 @@ class LiveAnalyzer(
     private val onResult: (LiveScene) -> Unit,
     /** Для AR-масок лица ищутся на каждом кадре — маска «прилипает» к лицу. */
     private val realtimeFaces: () -> Boolean = { false },
+    /** Маленький живой кадр (раз в ~2 с) — для миниатюр фильтров «на живом кадре». */
+    private val onThumb: ((Bitmap) -> Unit)? = null,
 ) : ImageAnalysis.Analyzer {
+    private var lastThumb = 0L
 
     private var lastFaces = 0L
     private var lastLabels = 0L
@@ -47,6 +50,13 @@ class LiveAnalyzer(
             val rotation = image.imageInfo.rotationDegrees
             val bmp: Bitmap = image.toBitmap()
             val st = ImageOps.stats(bmp)
+            if (onThumb != null && now - lastThumb > 2000) {
+                lastThumb = now
+                runCatching {
+                    val small = ImageOps.limitSize(bmp, 200)
+                    onThumb.invoke(if (rotation != 0) ImageOps.rotate(small, rotation) else small)
+                }
+            }
             val diff = if (prevMean < 0) 0f else abs(st.mean - prevMean)
             prevMean = st.mean
             shake = shake * 0.8f + diff * 20f * 0.2f

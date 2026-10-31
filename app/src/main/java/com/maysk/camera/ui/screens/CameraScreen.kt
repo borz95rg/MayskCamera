@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -323,10 +324,11 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                     )
             )
             // Рамка видна в кадре ещё до снимка
-            if (!isVideo) ui.frame?.let { FrameLiveOverlay(it) }
+            // рамка рисуется в самом кадре (GL); Compose-слой — только запасной вариант или «размытый фон» фото
+            ui.frame?.takeIf { !(isVideo && it.style.photoOnly) && (!cam.effectsActive || it.style.photoOnly) }?.let { FrameLiveOverlay(it) }
             if (settings.grid) GridOverlay()
             if (settings.horizon && !recordingNow) HorizonOverlay()
-            if (ui.arMask != com.maysk.camera.camera.ArMask.NONE) ArMaskOverlay(live.faces, ui.arMask, cam.front)
+            if (ui.arMask != com.maysk.camera.camera.ArMask.NONE && !isVideo) ArMaskOverlay(live.faces, ui.arMask, cam.front)
             else FaceOverlay(live.faces.map { it.box }, cam.front)
             focusPoint?.let { p ->
                 Box(
@@ -337,7 +339,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                 )
             }
             if (ui.countdown > 0) Text("${ui.countdown}", color = Color.White, fontSize = 96.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Center))
-            if (ui.panoramaActive || ui.mode == CameraMode.PANORAMA) PanoramaGuide(ui.panoramaActive, ui.panoramaFrames, Modifier.align(Alignment.Center))
+            if (ui.panoramaActive || ui.mode == CameraMode.PANORAMA) PanoramaGuide(ui, Modifier.fillMaxSize())
             ui.busy?.takeIf { !ui.timelapseActive && !ui.panoramaActive }?.let { BusyOverlay(it, ui.progress) }
         }
 
@@ -396,7 +398,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                         Text((ui.aiHint ?: "") + ui.aiActions.joinToString("") { " · $it" }, color = Color.White, fontSize = 12.sp)
                     }
                 }
-                val suggestion = suggestMode(live.scene, ui.mode)
+                val suggestion = suggestMode(live.scene, ui.mode, cam.macroAvailable)
                 if (suggestion != null && dismissedSuggestion != live.scene) {
                     Row(
                         Modifier
@@ -410,6 +412,13 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                         Text(suggestion.first, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         Text("  ✕", color = Color.White, fontSize = 12.sp, modifier = Modifier.clickable { dismissedSuggestion = live.scene }.padding(4.dp))
                     }
+                }
+                ui.modeLookOffer?.let { id ->
+                    Text(
+                        "Применить вид режима «${Filters.byId(id).name}»", color = Color.White, fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 6.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.55f))
+                            .border(1.dp, Accent, RoundedCornerShape(14.dp)).clickable { vm.applyModeLook() }.padding(horizontal = 12.dp, vertical = 5.dp)
+                    )
                 }
                 if (ui.mode == CameraMode.PRO) Histogram(live.histogram, Modifier.padding(top = 6.dp))
             }
@@ -426,8 +435,26 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
         ) {
             if (ui.mode == CameraMode.PRO && !recordingNow) ProInfoRow(cam.liveIso, cam.liveExposureNs, cam.liveAperture ?: cam.apertures.firstOrNull(), Modifier)
 
+            // во время записи фильтр, эффект и рамку можно менять — сразу видно и пишется в файл
+            val liveDuringRec = cam.recording && !ui.timelapseActive && !ui.panoramaActive
+            if (liveDuringRec) Row(
+                Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
+            ) {
+                listOf(Panel.FILTERS to "Фильтр", Panel.EFFECTS to "Эффект", Panel.FRAMES to "Рамка").forEach { (p, t) ->
+                    Pill(t, panel == p) { panel = if (panel == p) Panel.NONE else p }
+                }
+            }
+            if (!cam.effectsActive && cam.ready) Text(
+                "Живой фильтр недоступен на этой камере — фильтр будет применён к фото после снимка",
+                color = Color.White, fontSize = 11.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)
+                    .clip(RoundedCornerShape(8.dp)).background(Color(0xAA5D1A1A)).padding(6.dp)
+            )
+
             // панель выбранного инструмента
-            androidx.compose.animation.AnimatedVisibility(visible = panel != Panel.NONE && !recordingNow) {
+            val panelAllowed = !recordingNow || (liveDuringRec && (panel == Panel.FILTERS || panel == Panel.EFFECTS || panel == Panel.FRAMES))
+            androidx.compose.animation.AnimatedVisibility(visible = panel != Panel.NONE && panelAllowed) {
                 Box(
                     Modifier
                         .fillMaxWidth()
@@ -437,7 +464,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     when (panel) {
-                        Panel.FILTERS -> FiltersPanel(ui.filterId, ui.filterIntensity, ui.lastUri, vm::setFilter, vm::setFilterIntensity)
+                        Panel.FILTERS -> FiltersPanel(ui.filterId, ui.filterIntensity, vm.liveThumb.collectAsState().value, vm::setFilter, vm::setFilterIntensity)
                         Panel.EFFECTS -> EffectsPanel(ui.effect, vm::setEffect)
                         Panel.BEAUTY -> BeautyPanel(vm, ui.beautyOn, settings.beautySkin, settings.beautyEyes, settings.beautyFace)
                         Panel.PRO -> ProPanel(vm, ui.manual, cam.isoRange, cam.manualSupported, onMore = nav.openProSettings)
@@ -445,7 +472,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                             "EV", cam.evIndex.toFloat(), "%+.1f".format(cam.evIndex * cam.evStep),
                             cam.evMin.toFloat()..maxOf(cam.evMax.toFloat(), cam.evMin + 1f)
                         ) { vm.controller.setExposureIndex(it.toInt()) }
-                        Panel.FRAMES -> MayskTheme(com.maysk.camera.ui.theme.AppTheme.DARK) { FramePicker(ui.frame) { vm.setFrame(it) } }
+                        Panel.FRAMES -> MayskTheme(com.maysk.camera.ui.theme.AppTheme.DARK) { FramePicker(ui.frame, videoMode = isVideo) { vm.setFrame(it) } }
                         Panel.MASKS -> MasksPanel(ui.arMask) { vm.setArMask(it) }
                         Panel.NONE -> Unit
                     }
@@ -542,7 +569,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
 }
 
 /** Умный помощник: подсказывает режим под сцену. */
-private fun suggestMode(scene: SceneType, current: CameraMode): Pair<String, CameraMode>? {
+private fun suggestMode(scene: SceneType, current: CameraMode, macroOk: Boolean = true): Pair<String, CameraMode>? {
     if (current != CameraMode.PHOTO && current != CameraMode.AI_AUTO) return null
     return when (scene) {
         SceneType.NIGHT -> "🌙 Обнаружена ночь → Night Pro" to CameraMode.NIGHT
@@ -550,7 +577,7 @@ private fun suggestMode(scene: SceneType, current: CameraMode): Pair<String, Cam
         SceneType.FOOD -> "🍔 Еда → режим «Еда»" to CameraMode.FOOD
         SceneType.PET -> "🐕 Питомец → быстрый затвор" to CameraMode.PET
         SceneType.LANDSCAPE, SceneType.SKY -> "🌄 Пейзаж → HDR пейзаж" to CameraMode.LANDSCAPE
-        SceneType.FLOWER -> "🌸 Крупный план → Макро" to CameraMode.MACRO
+        SceneType.FLOWER -> if (macroOk) "🌸 Крупный план → Макро" to CameraMode.MACRO else null
         else -> null
     }
 }
@@ -568,9 +595,10 @@ private fun ToolsDrawer(
         add(Tile(Icons.Filled.PhotoFilter, "Фильтры", panel == Panel.FILTERS || ui.filterId != "original") { onPanel(Panel.FILTERS) })
         add(Tile(Icons.Filled.Face, "Красота", ui.beautyOn) { onPanel(Panel.BEAUTY) })
         add(Tile(Icons.Filled.AutoFixHigh, "Эффекты", ui.effect != Effect.NONE) { onPanel(Panel.EFFECTS) })
-        add(Tile(Icons.Filled.Mood, "AR маски", ui.arMask != com.maysk.camera.camera.ArMask.NONE) { onPanel(Panel.MASKS) })
+        // AR-маски попадают только в фото — в видеорежиме пункта нет
+        if (!isVideo) add(Tile(Icons.Filled.Mood, "AR маски", ui.arMask != com.maysk.camera.camera.ArMask.NONE) { onPanel(Panel.MASKS) })
         add(Tile(Icons.Filled.Exposure, "EV", panel == Panel.EV) { onPanel(Panel.EV) })
-        if (!isVideo) add(Tile(Icons.Filled.CropFree, "Рамки", ui.frame != null) { onPanel(Panel.FRAMES) })
+        add(Tile(Icons.Filled.CropFree, "Рамки", ui.frame != null) { onPanel(Panel.FRAMES) })
         if (!isVideo) add(Tile(Icons.Filled.HdrOn, "HDR", ui.hdr) { vm.toggleHdr() })
         add(Tile(Icons.Filled.Settings, "ISO / Pro", ui.mode == CameraMode.PRO) { if (!isVideo) { vm.setMode(CameraMode.PRO); onPanel(Panel.PRO) } else onPro() })
         add(Tile(Icons.Filled.GridOn, "Сетка", settings.grid) { vm.updateSettings({ it.copy(grid = !it.grid) }) })
@@ -581,7 +609,7 @@ private fun ToolsDrawer(
         })
         if (isVideo) add(Tile(Icons.Filled.Vibration, "Антитряска", settings.stabilization != com.maysk.camera.data.Stabilization.OFF) { onVideoSettings() })
         if (isVideo) add(Tile(Icons.Filled.AutoAwesome, "AI видео", settings.aiVideoEnabled) { onAiVideo() })
-        add(Tile(Icons.Filled.LocalFlorist, "Макро", ui.mode == CameraMode.MACRO) { vm.setMode(CameraMode.MACRO) })
+        if (vm.cam.value.macroAvailable) add(Tile(Icons.Filled.LocalFlorist, "Макро", ui.mode == CameraMode.MACRO) { vm.setMode(CameraMode.MACRO) })
         add(Tile(Icons.Filled.NightsStay, "Ночь", ui.mode == CameraMode.NIGHT) { vm.setMode(CameraMode.NIGHT) })
         add(Tile(Icons.Filled.Portrait, "Портрет", ui.mode == CameraMode.PORTRAIT) { vm.setMode(CameraMode.PORTRAIT) })
         add(Tile(Icons.Filled.Mic, "Голос", settings.voiceControl) { vm.updateSettings({ it.copy(voiceControl = !it.voiceControl) }) })
@@ -642,6 +670,10 @@ private fun TopBar(
         TopChip("AI", ai) { vm.toggleAiPro() }
         if (!isVideo) IconButton(onClick = { vm.toggleHdr() }) {
             Icon(if (hdr) Icons.Filled.HdrOn else Icons.Filled.HdrOff, "HDR", tint = if (hdr) Accent else Color.White)
+        }
+        if (isVideo) {
+            val nightOn = vm.ui.collectAsState().value.nightVideo
+            TopChip("🌙 Ночь", nightOn) { vm.toggleNightVideo() }
         }
         if (!isVideo) IconButton(onClick = { vm.cycleTimer() }) {
             Icon(when (timer) { 3 -> Icons.Filled.Timer3; 10 -> Icons.Filled.Timer10; 0 -> Icons.Filled.TimerOff; else -> Icons.Filled.Timer }, "Таймер", tint = if (timer > 0) Accent else Color.White)
@@ -927,7 +959,7 @@ private fun MasksPanel(current: com.maysk.camera.camera.ArMask, onSelect: (com.m
                 }
             }
         }
-        Text("Маска сохраняется на фото. В записи видео — в следующем обновлении", color = Color.White.copy(alpha = 0.55f), fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
+        Text("Маска сохраняется на фото", color = Color.White.copy(alpha = 0.55f), fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
@@ -943,15 +975,51 @@ private fun StatusPill(text: String, modifier: Modifier) {
 }
 
 @Composable
-private fun PanoramaGuide(active: Boolean, frames: Int, modifier: Modifier) {
-    Column(modifier.padding(bottom = 64.dp, start = 30.dp, end = 30.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            if (active) "Плавно двигайте камеру вправо →" else "Нажмите затвор и плавно ведите камеру вправо",
-            color = Color.White, fontSize = 13.sp,
-            modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.5f)).padding(horizontal = 10.dp, vertical = 4.dp)
-        )
-        Spacer(Modifier.height(8.dp))
-        LinearProgressIndicator(progress = { frames / 16f }, color = Accent, trackColor = Color.White.copy(alpha = 0.3f), modifier = Modifier.fillMaxWidth())
+private fun PanoramaGuide(ui: com.maysk.camera.CameraUi, modifier: Modifier) {
+    val active = ui.panoramaActive
+    BoxWithConstraints(modifier) {
+        val W = maxWidth
+        // полупрозрачная полоса края предыдущего кадра: едет по экрану вместе с поворотом — это и есть граница
+        ui.panoGhost?.takeIf { active }?.let { g ->
+            val startFrac = if (ui.panoDirRight) 0.75f - ui.panoShift else ui.panoShift
+            Box(Modifier.offset(x = W * startFrac).width(W * 0.25f).fillMaxHeight()) {
+                androidx.compose.foundation.Image(
+                    g.asImageBitmap(), null, contentScale = ContentScale.FillBounds,
+                    alpha = 0.45f, modifier = Modifier.fillMaxSize()
+                )
+                Box(Modifier.fillMaxHeight().width(2.dp).background(Color.White.copy(alpha = 0.9f))
+                    .align(if (ui.panoDirRight) Alignment.CenterStart else Alignment.CenterEnd))
+                Text(
+                    if (ui.panoDirRight) "➜" else "⬅", color = Color.White, fontSize = 34.sp,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+        }
+        Column(
+            Modifier.align(Alignment.BottomCenter).padding(bottom = 150.dp, start = 24.dp, end = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                if (active) (ui.panoramaHint ?: "Плавно поворачивайте телефон") else "Нажмите затвор и плавно поворачивайте телефон — кадры снимаются сами",
+                color = Color.White, fontSize = 13.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 10.dp, vertical = 4.dp)
+            )
+            if (active) {
+                Spacer(Modifier.height(8.dp))
+                // растущая лента уже снятого
+                Row(
+                    Modifier.height(44.dp).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.4f)).padding(2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
+                    val list = if (ui.panoDirRight) ui.panoRibbon else ui.panoRibbon.reversed()
+                    list.takeLast(10).forEach { t ->
+                        androidx.compose.foundation.Image(t.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxHeight().width(22.dp))
+                    }
+                    Box(Modifier.fillMaxHeight().width(3.dp).background(Accent))
+                }
+                Text("Кадров: ${ui.panoramaFrames} · затвор — закончить", color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+            }
+        }
     }
 }
 
@@ -1012,32 +1080,20 @@ fun Histogram(hist: FloatArray, modifier: Modifier = Modifier) {
 // ---------- панели ----------
 
 @Composable
-private fun FiltersPanel(selected: String, intensity: Float, thumb: Uri?, onSelect: (String) -> Unit, onIntensity: (Float) -> Unit) {
-    var cat by remember { mutableStateOf<com.maysk.camera.camera.FilterCategory?>(Filters.byId(selected).category) }
+private fun FiltersPanel(selected: String, intensity: Float, live: android.graphics.Bitmap?, onSelect: (String) -> Unit, onIntensity: (Float) -> Unit) {
+    val cur = Filters.byId(selected)
+    var cat by remember { mutableStateOf<com.maysk.camera.camera.FilterCategory?>(null) }
     val list = remember(cat) { Filters.search("", cat) }
+    // миниатюры — на живом кадре камеры (или на встроенном примере, пока кадра нет)
+    val base = live ?: com.maysk.camera.ui.components.filterSample
     Column {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
-            item { Pill("Все ${Filters.all.size}", cat == null) { cat = null } }
-            items(com.maysk.camera.camera.FilterCategory.entries) { c -> Pill(c.title, cat == c) { cat = c } }
+            item { Pill("Все ${Filters.all.size - 1}", cat == null) { cat = null } }
+            items(com.maysk.camera.camera.FilterCategory.entries.filter { c -> Filters.all.any { it.category == c } }) { c -> Pill(c.title, cat == c) { cat = c } }
         }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(list, key = { it.id }) { f ->
-                val sel = f.id == selected
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(64.dp).clickable { onSelect(f.id) }) {
-                    Box(
-                        Modifier
-                            .size(58.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .border(2.dp, if (sel) Accent else Color.Transparent, RoundedCornerShape(10.dp))
-                            .background(AccentGradient)
-                    ) {
-                        if (thumb != null) AsyncImage(
-                            model = thumb, contentDescription = null, contentScale = ContentScale.Crop,
-                            colorFilter = ColorFilter.colorMatrix(ColorMatrix(f.matrix)), modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                    Text(f.name, color = if (sel) Accent else Color.White, fontSize = 10.sp, maxLines = 1, modifier = Modifier.padding(top = 3.dp))
-                }
+                com.maysk.camera.ui.components.FilterTile(base, f, f.id == cur.id) { onSelect(f.id) }
             }
         }
         if (selected != "original") CompactSlider("Сила", intensity, "${(intensity * 100).toInt()}", onChange = onIntensity)

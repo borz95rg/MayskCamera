@@ -771,6 +771,10 @@ object ImageOps {
             }
         }
 
+        // уточнение (как PatchMatch/EM): заново подбираем источник для каждой точки по целым патчам
+        // и усредняем перекрывающиеся патчи — вместо «кусков» получается цельная, связная текстура
+        refineFill(sr, sg, sb, small, origHole, srcIdx, sw, sh, 5, rnd)
+
         // перенос на полное разрешение: копируем пиксели из найденных мест фона
         val px = pixels(src)
         val out = px.copyOf()
@@ -803,6 +807,9 @@ object ImageOps {
             }
             if (ws > 0f) out[i] = (0xFF shl 24) or (clamp255(ar / ws) shl 16) or (clamp255(ag / ws) shl 8) or clamp255(ab / ws)
         }
+        // бесшовная коррекция яркости/цвета по краю (мембрана, как в Poisson-смешивании)
+        membraneBlend(px, out, hole, w, h, minX, minY, maxX, maxY)
+
         // мягкий шов по краю заливки
         val edge = max(1, min(w, h) / 700)
         val bl = boxBlur(out, w, h, edge)
@@ -815,6 +822,159 @@ object ImageOps {
             if (nearEdge) out[i] = bl[i]
         }
         return fromPixels(out, w, h)
+    }
+
+    private fun refineFill(sr: IntArray, sg: IntArray, sb: IntArray, orig: IntArray, hole: BooleanArray, srcIdx: IntArray, sw: Int, sh: Int, iters: Int, rnd: Random) {
+        val half = 3
+        val n = sw * sh
+        val oR = IntArray(n) { (orig[it] shr 16) and 255 }; val og = IntArray(n) { (orig[it] shr 8) and 255 }; val ob = IntArray(n) { orig[it] and 255 }
+        val valid = BooleanArray(n)
+        for (y in half until sh - half) for (x in half until sw - half) {
+            var ok = true
+            loop@ for (oy in -half..half) for (ox in -half..half) if (hole[(y + oy) * sw + x + ox]) { ok = false; break@loop }
+            valid[y * sw + x] = ok
+        }
+        val vlist = (0 until n).filter { valid[it] }.toIntArray()
+        if (vlist.isEmpty()) return
+        val holes = (0 until n).filter { hole[it] }.toIntArray()
+        if (holes.isEmpty()) return
+        val nnf = IntArray(n) { -1 }
+        val cost = DoubleArray(n) { 1e18 }
+        fun pc(p: Int, c: Int): Double {
+            val px = p % sw; val py = p / sw; val cx = c % sw; val cy = c / sw
+            var sum = 0.0; var cnt = 0
+            for (oy in -half..half) {
+                val qy = py + oy; if (qy < 0 || qy >= sh) continue
+                val ty = cy + oy
+                for (ox in -half..half) {
+                    val qx = px + ox; if (qx < 0 || qx >= sw) continue
+                    val q = qy * sw + qx; val t = ty * sw + cx + ox
+                    val dr = sr[q] - oR[t]; val dg = sg[q] - og[t]; val db = sb[q] - ob[t]
+                    sum += (dr * dr + dg * dg + db * db).toDouble(); cnt++
+                }
+            }
+            return sum / max(cnt, 1)
+        }
+        for (p in holes) {
+            var c = srcIdx[p]
+            if (c < 0 || !valid[c]) c = vlist[rnd.nextInt(vlist.size)]
+            nnf[p] = c
+        }
+        val nr = IntArray(n); val ng = IntArray(n); val nb = IntArray(n)
+        for (it in 0 until iters) {
+            for (p in holes) cost[p] = pc(p, nnf[p])
+            val d = if (it % 2 == 0) 1 else -1
+            for (k in holes.indices) {
+                val p = if (d == 1) holes[k] else holes[holes.size - 1 - k]
+                val px = p % sw; val py = p / sw
+                // распространение от соседей
+                for (dir in 0 until 2) {
+                    val q = if (dir == 0) p - d else p - d * sw
+                    if (q < 0 || q >= n || !hole[q]) continue
+                    if (kotlin.math.abs(q % sw - px) > 1) continue
+                    val c = nnf[q]
+                    val cx = c % sw + (if (dir == 0) d else 0); val cy = c / sw + (if (dir == 1) d else 0)
+                    if (cx in 0 until sw && cy in 0 until sh) {
+                        val cc = cy * sw + cx
+                        if (valid[cc]) { val v = pc(p, cc); if (v < cost[p]) { cost[p] = v; nnf[p] = cc } }
+                    }
+                }
+                // случайный поиск с уменьшающимся радиусом
+                var r = max(sw, sh)
+                while (r >= 1) {
+                    val c = nnf[p]
+                    val cx = (c % sw + rnd.nextInt(-r, r + 1)).coerceIn(0, sw - 1)
+                    val cy = (c / sw + rnd.nextInt(-r, r + 1)).coerceIn(0, sh - 1)
+                    val cc = cy * sw + cx
+                    if (valid[cc]) { val v = pc(p, cc); if (v < cost[p]) { cost[p] = v; nnf[p] = cc } }
+                    r /= 2
+                }
+            }
+            // голосование перекрывающихся патчей
+            System.arraycopy(sr, 0, nr, 0, n); System.arraycopy(sg, 0, ng, 0, n); System.arraycopy(sb, 0, nb, 0, n)
+            for (p in holes) {
+                val px = p % sw; val py = p / sw
+                var ar = 0.0; var ag = 0.0; var ab = 0.0; var ws = 0.0
+                for (oy in -half..half) {
+                    val qy = py + oy; if (qy < 0 || qy >= sh) continue
+                    for (ox in -half..half) {
+                        val qx = px + ox; if (qx < 0 || qx >= sw) continue
+                        val q = qy * sw + qx
+                        if (!hole[q]) continue
+                        val t = nnf[q] - oy * sw - ox
+                        if (t < 0 || t >= n) continue
+                        val wt = max(kotlin.math.exp(-cost[q] / 1800.0), 1e-4)
+                        ar += oR[t] * wt; ag += og[t] * wt; ab += ob[t] * wt; ws += wt
+                    }
+                }
+                if (ws > 0) { nr[p] = (ar / ws + 0.5).toInt(); ng[p] = (ag / ws + 0.5).toInt(); nb[p] = (ab / ws + 0.5).toInt() }
+            }
+            System.arraycopy(nr, 0, sr, 0, n); System.arraycopy(ng, 0, sg, 0, n); System.arraycopy(nb, 0, sb, 0, n)
+        }
+        for (p in holes) srcIdx[p] = nnf[p]
+    }
+
+    /**
+     * Мембранная (Poisson-подобная) коррекция: разница между заливкой и настоящим фоном на краю
+     * дыры плавно «растекается» внутрь — граница заливки становится невидимой.
+     */
+    private fun membraneBlend(orig: IntArray, out: IntArray, hole: BooleanArray, w: Int, h: Int, minX: Int, minY: Int, maxX: Int, maxY: Int) {
+        val x0 = max(0, minX - 2); val y0 = max(0, minY - 2); val x1 = min(w - 1, maxX + 2); val y1 = min(h - 1, maxY + 2)
+        val rw = x1 - x0 + 1; val rh = y1 - y0 + 1
+        val sc = max(1, max(rw, rh) / 160)
+        val gw = (rw + sc - 1) / sc; val gh = (rh + sc - 1) / sc
+        val acc = Array(3) { DoubleArray(gw * gh) }; val cnt = IntArray(gw * gh); val inside = BooleanArray(gw * gh)
+        fun ch(c: Int, k: Int) = (c shr (16 - 8 * k)) and 255
+        for (y in y0..y1) for (x in x0..x1) {
+            val i = y * w + x
+            if (!hole[i]) continue
+            val g = ((y - y0) / sc) * gw + (x - x0) / sc
+            inside[g] = true
+            for (d in 0 until 4) {
+                val xx = x + (if (d == 0) 1 else if (d == 1) -1 else 0); val yy = y + (if (d == 2) 1 else if (d == 3) -1 else 0)
+                if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue
+                val j = yy * w + xx
+                if (hole[j]) continue
+                for (k in 0 until 3) acc[k][g] += (ch(orig[j], k) - ch(out[i], k)).toDouble()
+                cnt[g]++
+            }
+        }
+        // сетка с рамкой из нулей; точки границы зафиксированы
+        val W = gw + 2; val H = gh + 2
+        val m = Array(3) { DoubleArray(W * H) }; val fixed = BooleanArray(W * H) { true }
+        for (y in 0 until gh) for (x in 0 until gw) {
+            val g = y * gw + x; val G = (y + 1) * W + x + 1
+            if (cnt[g] > 0) for (k in 0 until 3) m[k][G] = acc[k][g] / cnt[g]
+            else if (inside[g]) fixed[G] = false
+        }
+        val tmp = DoubleArray(W * H)
+        for (k in 0 until 3) {
+            val a = m[k]
+            repeat(600) {
+                System.arraycopy(a, 0, tmp, 0, a.size)
+                for (y in 1 until H - 1) for (x in 1 until W - 1) {
+                    val G = y * W + x
+                    if (!fixed[G]) a[G] = 0.25 * (tmp[G - 1] + tmp[G + 1] + tmp[G - W] + tmp[G + W])
+                }
+            }
+        }
+        // билинейно на полное разрешение и прибавляем к заливке
+        for (y in y0..y1) for (x in x0..x1) {
+            val i = y * w + x
+            if (!hole[i]) continue
+            val gx = (x - x0 + 0.5f) / sc - 0.5f + 1f; val gy = (y - y0 + 0.5f) / sc - 0.5f + 1f
+            val ix = gx.toInt().coerceIn(0, W - 2); val iy = gy.toInt().coerceIn(0, H - 2)
+            val tx = (gx - ix).coerceIn(0f, 1f); val ty = (gy - iy).coerceIn(0f, 1f)
+            val c = out[i]
+            var res = 0xFF shl 24
+            for (k in 0 until 3) {
+                val a = m[k]
+                val v = a[iy * W + ix] * (1 - tx) * (1 - ty) + a[iy * W + ix + 1] * tx * (1 - ty) +
+                    a[(iy + 1) * W + ix] * (1 - tx) * ty + a[(iy + 1) * W + ix + 1] * tx * ty
+                res = res or (((ch(c, k) + v).toInt().coerceIn(0, 255)) shl (16 - 8 * k))
+            }
+            out[i] = res
+        }
     }
 
     private fun dilate(m: BooleanArray, w: Int, h: Int, r: Int): BooleanArray {

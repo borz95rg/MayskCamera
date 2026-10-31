@@ -81,7 +81,10 @@ fun ModesScreen(vm: CameraViewModel, onBack: () -> Unit, onSpecial: () -> Unit, 
     Column(Modifier.fillMaxSize().background(Maysk.colors.bg)) {
         ScreenHeader("Режимы съёмки", onBack = onBack)
         Segmented(listOf("Фото", "Видео"), tab, Modifier.padding(horizontal = 16.dp)) { tab = it }
+        val camState by vm.cam.collectAsState()
+        // макро не обещаем, если у телефона нет камеры ближней фокусировки
         val modes = CameraMode.entries.filter { if (tab == 0) it.group == ModeGroup.PHOTO || it.group == ModeGroup.SPECIAL else it.group == ModeGroup.VIDEO }
+            .filter { it != CameraMode.MACRO || camState.macroAvailable }
         LazyVerticalGrid(
             GridCells.Fixed(2),
             modifier = Modifier.weight(1f).padding(16.dp),
@@ -113,6 +116,8 @@ fun SpecialModesScreen(vm: CameraViewModel, onBack: () -> Unit, onDone: () -> Un
         CameraMode.DOCUMENT to listOf(Color(0xFF546E7A), Color(0xFF263238)),
         CameraMode.LANDSCAPE to listOf(Color(0xFF00838F), Color(0xFF004D40)),
     )
+    val camState by vm.cam.collectAsState()
+    val shown = list.filter { it.first != CameraMode.MACRO || camState.macroAvailable }
     Column(Modifier.fillMaxSize().background(Maysk.colors.bg)) {
         ScreenHeader("Специальные режимы", onClose = onBack)
         LazyVerticalGrid(
@@ -121,7 +126,7 @@ fun SpecialModesScreen(vm: CameraViewModel, onBack: () -> Unit, onDone: () -> Un
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            items(list) { (m, colors) ->
+            items(shown) { (m, colors) ->
                 Box(
                     Modifier
                         .aspectRatio(1f)
@@ -286,8 +291,9 @@ fun VideoSettingsScreen(vm: CameraViewModel, onBack: () -> Unit) {
                 }
                 Text("* не поддерживается этой камерой — будет выбрано ближайшее качество", color = Maysk.colors.muted, fontSize = 11.sp)
                 SectionLabel("FPS")
-                val fpsList = listOf(24, 30, 60, 120)
-                ChoiceRow(fpsList.map { "$it" + if (it !in cam.fpsOptions && it != 30) "*" else "" }, fpsList.indexOf(s.fps)) { i ->
+                // только частоты, которые камера реально отдаёт приложению
+                val fpsList = cam.fpsOptions.filter { it in listOf(24, 30, 60, 120) }.ifEmpty { listOf(30) }
+                ChoiceRow(fpsList.map { "$it" }, fpsList.indexOf(s.fps).coerceAtLeast(0)) { i ->
                     vm.updateSettings({ it.copy(fps = fpsList[i]) })
                 }
             }

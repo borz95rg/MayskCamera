@@ -12,6 +12,7 @@ import kotlin.math.abs
 import kotlin.math.atan
 import kotlin.math.sqrt
 import kotlin.math.tan
+import kotlin.math.tanh
 
 /**
  * Электронная стабилизация Maysk (EIS) по гироскопу.
@@ -48,6 +49,19 @@ class GyroStabilizer(context: Context) : SensorEventListener {
     private var lastTs = 0L
     private var energy = 0.0   // средняя скорость вращения — для режима «Авто»
 
+    // «Сырые» углы для панорамы (рад) и скорость поворота (рад/с) — считаются всегда, пока датчик включён
+    @Volatile var rawYaw: Float = 0f; private set
+    @Volatile var rawPitch: Float = 0f; private set
+    @Volatile var rate: Float = 0f; private set
+    private var rawTs = 0L
+    private var rYaw = 0.0; private var rPitch = 0.0
+
+    /** История компенсаций (время датчика → поправка), чтобы брать поправку на момент съёмки кадра. */
+    private val histT = LongArray(256)
+    private val histC = Array(256) { FloatArray(4) }
+    private var histN = 0
+    private var histPos = 0
+
     /** Текущая компенсация: du, dv (доли кадра), поворот (градусы), увеличение. */
     @Volatile var correction: FloatArray = floatArrayOf(0f, 0f, 0f, 1f)
         private set
@@ -79,9 +93,49 @@ class GyroStabilizer(context: Context) : SensorEventListener {
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
+    /**
+     * Поправка на момент экспозиции кадра [frameTsNs] (время камеры). Устраняет «опоздание»
+     * стабилизации на 30–60 мс, из-за которого при ходьбе картинка подрагивала.
+     * Если часы камеры и датчика не совпадают — возвращает последнюю поправку.
+     */
+    fun correctionAt(frameTsNs: Long): FloatArray {
+        val n = histN
+        if (n == 0 || frameTsNs <= 0L) return correction
+        val boot = android.os.SystemClock.elapsedRealtimeNanos() - System.nanoTime()
+        var ts0 = 0L; var tsArr = LongArray(0); var cArr: Array<FloatArray> = emptyArray()
+        synchronized(histT) { tsArr = histT.copyOf(); cArr = Array(256) { histC[it].copyOf() }; ts0 = histT[(histPos - 1 + 256) % 256] }
+        // середина экспозиции ≈ +8 мс от начала кадра
+        var ts = frameTsNs + 8_000_000L
+        if (abs(ts0 - ts) > 300_000_000L) ts += boot     // камера в «монотонных» часах
+        if (abs(ts0 - ts) > 300_000_000L) return correction
+        var best = -1; var bestD = Long.MAX_VALUE
+        for (i in 0 until n) {
+            val d = abs(tsArr[i] - ts)
+            if (d < bestD) { bestD = d; best = i }
+        }
+        return if (best >= 0 && bestD < 40_000_000L) cArr[best] else correction
+    }
+
+    private fun pushHistory(ts: Long, c: FloatArray) {
+        synchronized(histT) {
+            histT[histPos] = ts
+            System.arraycopy(c, 0, histC[histPos], 0, 4)
+            histPos = (histPos + 1) % 256
+            if (histN < 256) histN++
+        }
+    }
+
     override fun onSensorChanged(e: SensorEvent) {
+        // сырые углы для панорамы
+        if (rawTs != 0L) {
+            val rdt = ((e.timestamp - rawTs) / 1e9).coerceIn(0.0, 0.05)
+            rYaw += e.values[1] * rdt; rPitch += e.values[0] * rdt
+            rawYaw = rYaw.toFloat(); rawPitch = rPitch.toFloat()
+            rate = sqrt(e.values[0] * e.values[0] + e.values[1] * e.values[1] + e.values[2] * e.values[2])
+        }
+        rawTs = e.timestamp
         val lv = level
-        if (!lv.software) { correction = floatArrayOf(0f, 0f, 0f, 1f); lastTs = 0L; return }
+        if (!lv.software) { correction = floatArrayOf(0f, 0f, 0f, 1f); lastTs = 0L; histN = 0; return }
         if (lastTs == 0L) { lastTs = e.timestamp; return }
         val dt = ((e.timestamp - lastTs) / 1e9).coerceIn(0.0, 0.05)
         lastTs = e.timestamp
@@ -101,19 +155,28 @@ class GyroStabilizer(context: Context) : SensorEventListener {
             }
         } else lv.tau.toDouble() to lv.margin.toDouble()
 
-        // два каскада сглаживания: плавный старт и плавная остановка движения
-        val k = dt / (tau / 2 + dt)
-        s1x += (ax - s1x) * k; s1y += (ay - s1y) * k; s1z += (az - s1z) * k
-        s2x += (s1x - s2x) * k; s2y += (s1y - s2y) * k; s2z += (s1z - s2z) * k
-
-        // ограничение запасом кадра: если поворот больше запаса — траектория догоняет
+        // запас кадра (в радианах) по осям
         val maxU = atan(margin * 0.85 * 2 * tanHalfFovU)
         val maxV = atan(margin * 0.85 * 2 * tanHalfFovV)
         val maxRoll = Math.toRadians(3.0 + margin * 20)
-        var dYaw = ay - s2y; var dPitch = ax - s2x; var dRoll = az - s2z
-        if (abs(dYaw) > maxU) { s2y = ay - maxU * sign(dYaw); s1y = s2y; dYaw = ay - s2y }
-        if (abs(dPitch) > maxV) { s2x = ax - maxV * sign(dPitch); s1x = s2x; dPitch = ax - s2x }
-        if (abs(dRoll) > maxRoll) { s2z = az - maxRoll * sign(dRoll); s1z = s2z; dRoll = az - s2z }
+
+        // Два каскада сглаживания. Вместо жёсткого упора в край запаса (давал «прыжки» при ходьбе)
+        // траектория плавно ускоряется, когда поправка приближается к краю.
+        val k = dt / (tau / 2 + dt)
+        fun boost(d: Double, m: Double): Double {
+            val ex = ((abs(d) / m) - 0.5).coerceAtLeast(0.0) / 0.5
+            return (1.0 + 6.0 * ex * ex).coerceAtMost(1.0 / k.coerceAtLeast(1e-6))
+        }
+        val kx = (k * boost(ax - s2x, maxV)).coerceAtMost(1.0)
+        val ky = (k * boost(ay - s2y, maxU)).coerceAtMost(1.0)
+        val kz = (k * boost(az - s2z, maxRoll)).coerceAtMost(1.0)
+        s1x += (ax - s1x) * kx; s1y += (ay - s1y) * ky; s1z += (az - s1z) * kz
+        s2x += (s1x - s2x) * kx; s2y += (s1y - s2y) * ky; s2z += (s1z - s2z) * kz
+
+        // мягкое ограничение (tanh): поправка никогда не выходит за запас, но и не «упирается» резко
+        val dYaw = maxU * tanh((ay - s2y) / maxU)
+        val dPitch = maxV * tanh((ax - s2x) / maxV)
+        val dRoll = maxRoll * tanh((az - s2z) / maxRoll)
 
         // перевод углов в сдвиг кадра (доли ширины/высоты вертикального кадра)
         var du = tan(dYaw) / (2 * tanHalfFovU)
@@ -123,6 +186,7 @@ class GyroStabilizer(context: Context) : SensorEventListener {
         if (invertY) dv = -dv
         val zoom = 1.0 / (1.0 - 2 * margin)
         correction = floatArrayOf(du.toFloat(), dv.toFloat(), Math.toDegrees(dRoll).toFloat(), zoom.toFloat())
+        pushHistory(e.timestamp, correction)
 
         // периодически «обнуляем» большие числа, чтобы не терять точность
         if (abs(ax) > 100 || abs(ay) > 100 || abs(az) > 100) {

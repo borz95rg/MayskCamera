@@ -127,9 +127,11 @@ data class CamState(
     val recordSeconds: Long = 0,
     val error: String? = null,
     val effectsActive: Boolean = false,
+    /** Можно ли честно снимать макро на этом телефоне. */
+    val macroAvailable: Boolean = true,
 )
 
-private data class LensInfo(val id: String, val front: Boolean, val fov: Float, val info: CameraInfo)
+private data class LensInfo(val id: String, val front: Boolean, val fov: Float, val info: CameraInfo, val minFocus: Float = 0f)
 
 @OptIn(ExperimentalCamera2Interop::class)
 class CameraController(private val context: Context) {
@@ -176,7 +178,8 @@ class CameraController(private val context: Context) {
                 val focal = c2.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.minOrNull() ?: 4f
                 val sensor = c2.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
                 val fov = (sensor?.width ?: 5f) / focal
-                LensInfo(c2.cameraId, facing == CameraCharacteristics.LENS_FACING_FRONT, fov, info)
+                val mf = c2.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f
+                LensInfo(c2.cameraId, facing == CameraCharacteristics.LENS_FACING_FRONT, fov, info, mf)
             }.getOrNull()
         }
         val ext = extensions
@@ -185,6 +188,7 @@ class CameraController(private val context: Context) {
                 .filter { m -> runCatching { ext.isExtensionAvailable(sel, m) }.getOrDefault(false) }.toSet()
         _state.update {
             it.copy(
+                macroAvailable = macroAvailable(),
                 backExtensions = extSet(CameraSelector.DEFAULT_BACK_CAMERA),
                 frontExtensions = extSet(CameraSelector.DEFAULT_FRONT_CAMERA),
             )
@@ -192,12 +196,29 @@ class CameraController(private val context: Context) {
     }
 
     private fun mainBack(): LensInfo? = lenses.firstOrNull { !it.front }
+    /** Камера для макро: задняя с самой близкой фокусировкой, заметно ближе основной (если есть). */
+    private fun macroLens(): LensInfo? {
+        val m = mainBack() ?: return null
+        return lenses.filter { !it.front && it.id != m.id && it.minFocus >= 10f }.maxByOrNull { it.minFocus }
+            ?.takeIf { it.minFocus > m.minFocus * 1.3f }
+    }
+
+    /** Макро возможно честно: есть отдельная камера ближней фокусировки или основная фокусируется ближе ~8 см. */
+    fun macroAvailable(): Boolean = macroLens() != null || (mainBack()?.minFocus ?: 0f) >= 12f
+
     private fun ultraWideLens(): LensInfo? {
         val m = mainBack() ?: return null
         return lenses.filter { !it.front && it.id != m.id }.maxByOrNull { it.fov }?.takeIf { it.fov > m.fov * 1.3f }
     }
 
     private fun selectorFor(cfg: BindConfig): CameraSelector {
+        if (!cfg.front && cfg.mode == CameraMode.MACRO) {
+            macroLens()?.let { ml ->
+                return CameraSelector.Builder().addCameraFilter { infos ->
+                    infos.filter { runCatching { Camera2CameraInfo.from(it).cameraId == ml.id }.getOrDefault(false) }
+                }.build()
+            }
+        }
         if (!cfg.front && cfg.ultraWideLens) {
             ultraWideLens()?.let { uw ->
                 return CameraSelector.Builder().addCameraFilter { infos ->
@@ -215,14 +236,13 @@ class CameraController(private val context: Context) {
         lastConfig = cfg
         prov.unbindAll()
 
-        var selector = selectorFor(cfg)
-        var ext: Int? = null
+        val baseSelector = selectorFor(cfg)
+        var extSelector: CameraSelector? = null
         val extMode = cfg.extensionOverride ?: cfg.mode.extension
         val em = extensions
         if (cfg.useExtension && extMode != null && !cfg.mode.recordsVideo && em != null && !cfg.ultraWideLens) {
-            if (runCatching { em.isExtensionAvailable(selector, extMode) }.getOrDefault(false)) {
-                selector = em.getExtensionEnabledCameraSelector(selector, extMode)
-                ext = extMode
+            if (runCatching { em.isExtensionAvailable(baseSelector, extMode) }.getOrDefault(false)) {
+                extSelector = runCatching { em.getExtensionEnabledCameraSelector(baseSelector, extMode) }.getOrNull()
             }
         }
 
@@ -291,11 +311,12 @@ class CameraController(private val context: Context) {
                 .build().also { it.setAnalyzer(analysisExecutor, a) }
         }
 
-        val effect: CameraEffect? = if (cfg.liveEffects && ext == null)
+        // Живой GL-эффект (фильтр, эффект, рамка) создаётся ВСЕГДА — расширение производителя не может его отключить
+        val effect: CameraEffect? = if (cfg.liveEffects)
             processor.createEffect(if (cfg.mode.recordsVideo) CameraEffect.PREVIEW or CameraEffect.VIDEO_CAPTURE else CameraEffect.PREVIEW)
         else null
 
-        fun tryBind(withAnalysis: Boolean, withEffect: Boolean): Camera? = runCatching {
+        fun tryBind(withAnalysis: Boolean, withEffect: Boolean, selector: CameraSelector = baseSelector): Camera? = runCatching {
             prov.unbindAll()
             val g = UseCaseGroup.Builder()
             useCases.forEach { g.addUseCase(it) }
@@ -305,8 +326,21 @@ class CameraController(private val context: Context) {
             prov.bindToLifecycle(owner, selector, g.build())
         }.onFailure { Log.w(TAG, "bind failed (analysis=$withAnalysis effect=$withEffect)", it) }.getOrNull()
 
+        // Порядок: расширение + живой фильтр → без расширения, но с фильтром (фильтр важнее)
+        // → без фильтра (тогда на экране честное «живой фильтр недоступен»).
         var effectsOn = effect != null
-        val cam = tryBind(true, true) ?: tryBind(false, true) ?: run { effectsOn = false; tryBind(true, false) } ?: tryBind(false, false)
+        var ext: Int? = null
+        var cam: Camera? = null
+        if (extSelector != null && effect != null) {
+            cam = tryBind(true, true, extSelector) ?: tryBind(false, true, extSelector)
+            if (cam != null) ext = extMode
+        }
+        if (cam == null && effect != null) cam = tryBind(true, true) ?: tryBind(false, true)
+        if (cam == null) {
+            effectsOn = false
+            if (extSelector != null) { cam = tryBind(true, false, extSelector); if (cam != null) ext = extMode }
+            if (cam == null) cam = tryBind(true, false) ?: tryBind(false, false)
+        }
         camera = cam
         if (cam == null) {
             _state.update { it.copy(ready = false, error = "Не удалось запустить камеру") }
@@ -368,6 +402,13 @@ class CameraController(private val context: Context) {
     private var zoomSource: LiveData<ZoomState>? = null
 
     /** Собирает все Camera2-параметры запроса в одном месте. */
+    @Volatile var aeAwbLock = false
+
+    fun setAeAwbLock(on: Boolean) { aeAwbLock = on; applyRequestOptions() }
+
+    @Volatile var awbLock = false
+    fun setAwbLock(on: Boolean) { if (awbLock != on) { awbLock = on; applyRequestOptions() } }
+
     fun applyRequestOptions(m: ManualSettings = manual) {
         manual = m
         val cam = camera ?: return
@@ -384,11 +425,9 @@ class CameraController(private val context: Context) {
             else -> if (cfg.mode.recordsVideo) cfg.fps else 0
         }
         if (wantFps > 0) {
-            // Ночное видео: диапазон вроде [15, 30] — камера сама снижает FPS в темноте ради света
-            val night = lowLight && wantFps <= 30 && cfg.mode != CameraMode.CINEMATIC
-            val pick = if (night) ranges?.filter { it.upper == 30 && it.lower in 8..24 }?.minByOrNull { it.lower }
-            else null
-            (pick ?: ranges?.filter { it.upper == wantFps }?.maxByOrNull { it.lower })?.let {
+            // Постоянная частота (нижняя граница = верхней, если есть): выдержка не длиннее 1/fps,
+            // ночью картинка не «дёргается» (раньше диапазон 8–24 fps давал рывки)
+            (ranges?.filter { it.upper == wantFps }?.maxByOrNull { it.lower })?.let {
                 b.setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(it.lower, it.upper))
             }
         }
@@ -446,6 +485,15 @@ class CameraController(private val context: Context) {
         val afModes = c2.getCameraCharacteristic(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES)?.toList() ?: emptyList()
         if ((cfg.mode == CameraMode.MACRO || m.macroFocus) && afModes.contains(CameraMetadata.CONTROL_AF_MODE_MACRO) && m.focusDiopters == null)
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_MACRO)
+
+        // Блокировка экспозиции и баланса белого (панорама — чтобы швы не отличались по яркости)
+        if (aeAwbLock) {
+            b.setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, true)
+            b.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, true)
+        } else if (awbLock) {
+            // ночное видео: баланс белого фиксируется в начале записи — не прыгает в сине-фиолетовый
+            b.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, true)
+        }
 
         // Профи
         if (m.iso != null || m.exposureNs != null) {

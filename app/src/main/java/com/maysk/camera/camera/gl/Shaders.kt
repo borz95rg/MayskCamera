@@ -5,11 +5,14 @@ internal object Shaders {
 attribute vec4 aPosition;
 attribute vec4 aTexCoord;
 uniform mat4 uTexMatrix;
+uniform mat4 uOvMatrix;
 varying vec2 vTex;
 varying vec2 vPos;
+varying vec2 vOv;
 void main() {
     gl_Position = aPosition;
     vTex = (uTexMatrix * aTexCoord).xy;
+    vOv = (uOvMatrix * aTexCoord).xy;
     vPos = aPosition.xy * 0.5 + 0.5;
 }
 """
@@ -36,6 +39,16 @@ varying vec2 vPos;
 uniform vec2 uTexel;
 uniform mat4 uColor;
 uniform vec4 uOffset;
+uniform sampler2D uLut;
+uniform sampler2D uOv;
+uniform float uOvOn;
+varying vec2 vOv;
+uniform float uLutMix;
+uniform float uGrain;
+uniform float uLeak;
+uniform float uSkinTone;
+uniform float uWarmSat;
+uniform vec4 uFocus;
 uniform float uBeauty;
 uniform float uDenoise;
 uniform float uFaceLight;
@@ -97,7 +110,11 @@ void main() {
     c += skin * uFaceLight * 0.15;
     c *= uGain;
     if (uLift > 0.0) {
-        c = pow(max(c, vec3(0.0)), vec3(1.0 - uLift * 0.4));
+        // подъём ТОЛЬКО теней: яркие места и огни не трогаем (без умножения всего кадра)
+        float l0 = max(luma(c), 0.002);
+        float t = 1.0 - clamp(l0 / 0.55, 0.0, 1.0);
+        float l1 = l0 + uLift * 0.5 * l0 * t * t * 3.0;
+        c *= min(l1 / l0, 1.0 + uLift * 1.6);
     }
 
     // 3. Резкость
@@ -119,12 +136,66 @@ void main() {
 
     // 5. Фильтр
     vec4 col = uColor * vec4(clamp(c, 0.0, 1.0), 1.0) + uOffset;
-    c = col.rgb;
+    c = clamp(col.rgb, 0.0, 1.0);
+    if (uLutMix > 0.0) {
+        // тональная кривая фильтра (LUT 256x1: R,G,B в каналах текстуры)
+        vec3 q = c * (255.0 / 256.0) + 0.5 / 256.0;
+        vec3 lc = vec3(texture2D(uLut, vec2(q.r, 0.5)).r, texture2D(uLut, vec2(q.g, 0.5)).g, texture2D(uLut, vec2(q.b, 0.5)).b);
+        c = mix(c, lc, uLutMix);
+    }
+    // 5b. Приёмы фильтра (та же математика в Filters.applyExtras для фото)
+    if (uSkinTone > 0.0) {
+        float s = skinMask(c) * uSkinTone;
+        float o = uSkinTone - s;
+        c += vec3(s * 0.05 - o * 0.02, s * 0.015, -s * 0.03 + o * 0.03);
+    }
+    if (uWarmSat > 0.0) {
+        float l = luma(c);
+        float mx = max(c.r, max(c.g, c.b));
+        float mn = min(c.r, min(c.g, c.b));
+        float warm = clamp((c.r - c.b) * 2.5, 0.0, 1.0) * clamp((mx - mn) * 4.0, 0.0, 1.0);
+        c = vec3(l) + (c - vec3(l)) * (1.0 + 0.6 * uWarmSat * warm);
+        c.r += 0.03 * uWarmSat * warm;
+    }
+    c = clamp(c, 0.0, 1.0);
+    // портрет: мягче фон вокруг лица (uFocus = центр, радиус, сила); фильтр человека сохраняется
+    if (uFocus.w > 0.0) {
+        vec2 fp = (vPos - uFocus.xy) * vec2(uAspect, 1.0);
+        float fm = smoothstep(uFocus.z, uFocus.z * 2.2, length(fp)) * uFocus.w;
+        if (fm > 0.01) {
+            vec3 bl = vec3(0.0);
+            for (int i = 0; i < 8; i++) {
+                float a = float(i) * 0.785398;
+                bl += texture2D(uTex, vTex + vec2(cos(a), sin(a)) * uTexel * 9.0).rgb;
+                bl += texture2D(uTex, vTex + vec2(cos(a + 0.39), sin(a + 0.39)) * uTexel * 18.0).rgb;
+            }
+            bl /= 16.0;
+            vec3 bf = clamp((uColor * vec4(bl, 1.0) + uOffset).rgb, 0.0, 1.0);
+            if (uLutMix > 0.0) {
+                vec3 q2 = bf * (255.0 / 256.0) + 0.5 / 256.0;
+                bf = mix(bf, vec3(texture2D(uLut, vec2(q2.r, 0.5)).r, texture2D(uLut, vec2(q2.g, 0.5)).g, texture2D(uLut, vec2(q2.b, 0.5)).b), uLutMix);
+            }
+            c = mix(c, bf, fm);
+        }
+    }
     c = c * (1.0 - uFade * 0.25) + uFade * 0.1;
     vec2 p = vPos - 0.5;
     p.x *= uAspect;
     float dist = length(p);
     c *= 1.0 - uVignette * smoothstep(0.35, 0.95, dist);
+    if (uLeak > 0.0) {
+        // тёплая засветка из левого верхнего угла и по правому краю (screen-смешивание)
+        vec2 d = vec2(vPos.x * uAspect, vPos.y - 1.0);
+        float m1 = 1.0 - clamp(length(d) / 0.75, 0.0, 1.0);
+        float m2 = clamp((vPos.x - 0.82) / 0.18, 0.0, 1.0);
+        float a = clamp((m1 * m1 * 0.9 + m2 * m2 * 0.45) * uLeak, 0.0, 1.0);
+        c = vec3(1.0) - (vec3(1.0) - c) * (vec3(1.0) - vec3(1.0, 0.55, 0.25) * a);
+    }
+    if (uGrain > 0.0) {
+        // зерно меняется каждый кадр, как на плёнке
+        float n = rand(floor(gl_FragCoord.xy / 1.5) + vec2(fract(uTime * 7.13) * 91.0, fract(uTime * 3.7) * 57.0)) - 0.5;
+        c += n * uGrain * 0.12 * (1.0 - 0.5 * luma(c));
+    }
 
     // 6. Эффекты
     if (uEffect == 1) {
@@ -242,7 +313,55 @@ void main() {
         c = mix(c, vec3(0.85), fog * 0.45);
     }
 
+    // 7. Рамка, «вшитая» в видео (премультиплицированная альфа)
+    if (uOvOn > 0.5 && vOv.x >= 0.0 && vOv.x <= 1.0 && vOv.y >= 0.0 && vOv.y <= 1.0) {
+        vec4 o = texture2D(uOv, vec2(vOv.x, 1.0 - vOv.y));
+        c = clamp(c, 0.0, 1.0) * (1.0 - o.a) + o.rgb;
+    }
+
     gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+}
+"""
+
+    /** Тот же шейдер, но кадр читается из обычной текстуры (после временного шумоподавления). */
+    val FRAGMENT_2D: String = FRAGMENT
+        .replace("#extension GL_OES_EGL_image_external : require", "")
+        .replace("uniform samplerExternalOES uTex;", "uniform sampler2D uTex;")
+
+    const val TEMPORAL_VERTEX = """
+attribute vec4 aPosition;
+attribute vec4 aTexCoord;
+varying vec2 vUv;
+void main() {
+    gl_Position = aPosition;
+    vUv = aTexCoord.xy;
+}
+"""
+
+    /**
+     * Временное шумоподавление для ночного видео: смешиваем текущий кадр с предыдущим
+     * результатом, но только там, где картинка не изменилась (движение не «мажется»).
+     */
+    const val TEMPORAL_FRAGMENT = """
+#extension GL_OES_EGL_image_external : require
+precision mediump float;
+uniform samplerExternalOES uCur;
+uniform sampler2D uPrev;
+uniform float uStrength;
+uniform vec2 uTexel;
+varying vec2 vUv;
+void main() {
+    vec3 cur = texture2D(uCur, vUv).rgb;
+    vec3 prev = texture2D(uPrev, vUv).rgb;
+    // разницу оцениваем по слегка размытому кадру — шум не принимается за движение
+    vec3 curB = (cur * 2.0 + texture2D(uCur, vUv + vec2(uTexel.x, 0.0)).rgb + texture2D(uCur, vUv - vec2(uTexel.x, 0.0)).rgb
+               + texture2D(uCur, vUv + vec2(0.0, uTexel.y)).rgb + texture2D(uCur, vUv - vec2(0.0, uTexel.y)).rgb) / 6.0;
+    float d = abs(dot(curB - prev, vec3(0.299, 0.587, 0.114)));
+    float lum = dot(cur, vec3(0.299, 0.587, 0.114));
+    // в тенях шум сильнее — порог выше
+    float th = mix(0.05, 0.025, smoothstep(0.1, 0.5, lum));
+    float w = uStrength * (1.0 - smoothstep(th, th * 3.0, d));
+    gl_FragColor = vec4(mix(cur, prev, w), 1.0);
 }
 """
 }

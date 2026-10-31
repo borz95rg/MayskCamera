@@ -260,7 +260,7 @@ fun AiStudioScreen(onBack: () -> Unit, openEditor: (Uri, String?) -> Unit, openF
             StudioItem(Icons.Filled.CropFree, "Рамки", "Polaroid, кино, неон, люкс — 16 стилей") {
                 pending = "frame"; pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }
-            StudioItem(Icons.Filled.PhotoFilter, "Стили и фильтры", "342 фильтра: кино, аниме, cyberpunk, винтаж…") {
+            StudioItem(Icons.Filled.PhotoFilter, "Стили и фильтры", "29 фильтров: кино, плёнка, ч/б, портрет, неон…") {
                 pending = "filters"; pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }
             busy?.let {

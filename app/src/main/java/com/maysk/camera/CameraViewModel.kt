@@ -74,6 +74,21 @@ data class CameraUi(
     val countdown: Int = 0,
     val panoramaFrames: Int = 0,
     val panoramaActive: Boolean = false,
+    val panoramaProgress: Float = 0f,
+    /** Ночной рецепт для видео (кнопка «Ночь» в видеорежиме). */
+    val nightVideo: Boolean = false,
+    /** Фильтр поставлен режимом автоматически (а не выбран человеком). */
+    val filterAuto: Boolean = false,
+    /** Режим предлагает свой вид, но человек уже выбрал фильтр — показываем кнопку. */
+    val modeLookOffer: String? = null,
+    val panoramaHint: String? = null,
+    /** Край предыдущего кадра панорамы (четверть ширины) — граница для совмещения. */
+    val panoGhost: Bitmap? = null,
+    /** Доля поворота от прошлого кадра (0..1 от угла обзора) — двигает «границу» по экрану. */
+    val panoShift: Float = 0f,
+    val panoDirRight: Boolean = true,
+    /** Мини-лента уже снятых кадров. */
+    val panoRibbon: List<Bitmap> = emptyList(),
     val timelapseActive: Boolean = false,
     val timelapseFrames: Int = 0,
     val timelapseInterval: Float = 1f,
@@ -150,9 +165,13 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         controller.analyzer = LiveAnalyzer(
             enabled = { settings.value.smartAi || _ui.value.aiPro || needsFaces() },
             onResult = { scene -> live.value = scene; viewModelScope.launch { onLiveScene(scene) } },
-            realtimeFaces = { _ui.value.arMask != com.maysk.camera.camera.ArMask.NONE }
+            realtimeFaces = { _ui.value.arMask != com.maysk.camera.camera.ArMask.NONE },
+            onThumb = { b -> liveThumb.value = b }
         )
     }
+
+    /** Живой кадр для миниатюр фильтров (обновляется раз в ~2 с). */
+    val liveThumb = kotlinx.coroutines.flow.MutableStateFlow<Bitmap?>(null)
 
     private fun needsFaces() = _ui.value.arMask != com.maysk.camera.camera.ArMask.NONE || _ui.value.mode in setOf(CameraMode.PORTRAIT, CameraMode.INTERVIEW, CameraMode.CINEMATIC, CameraMode.VLOG, CameraMode.AI_AUTO)
 
@@ -188,7 +207,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         stabilizer.tanHalfFovV = fov.second / cam.value.zoom.coerceAtLeast(0.3f)
         val use = level.software && cam.value.effectsActive && stabilizer.available
         stabilizer.level = if (use) level else com.maysk.camera.data.Stabilization.OFF
-        if (use) stabilizer.start() else stabilizer.stop()
+        if (use || panoHold) stabilizer.start() else stabilizer.stop()
     }
 
     fun detach() {
@@ -232,7 +251,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         )
         controller.applyRequestOptions(u.manual)
         configureStabilizer()
-        if (u.mode == CameraMode.VIDEO_8K) toast("8K недоступно через CameraX на этом устройстве — запись в максимальном качестве (4K)")
+        if (u.mode == CameraMode.VIDEO_8K) toast("Запись в максимальном качестве, которое телефон отдаёт приложениям (обычно 4K)")
         updateEffect()
     }
     // endregion
@@ -245,14 +264,21 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             else -> _ui.value.front
         }
         _ui.update {
+            // выбор человека (фильтр, эффект, рамка) не сбрасывается; режим лишь предлагает свой вид
+            val userChose = it.filterId != "original" && !it.filterAuto
             it.copy(
-                mode = m, front = front, filterId = m.filterId ?: "original", effect = Effect.NONE,
+                mode = m, front = front,
+                filterId = if (userChose) it.filterId else (m.filterId ?: "original"),
+                filterAuto = if (userChose) false else m.filterId != null,
+                modeLookOffer = if (userChose && m.filterId != null && m.filterId != it.filterId) m.filterId else null,
+                arMask = if (m.recordsVideo) com.maysk.camera.camera.ArMask.NONE else it.arMask,
                 beautyOn = m == CameraMode.PORTRAIT || m == CameraMode.VLOG || it.beautyOn,
                 manual = if (m == CameraMode.PRO) it.manual else ManualSettings(),
                 ultraWide = if (m.recordsVideo || m == CameraMode.PORTRAIT) false else it.ultraWide,
             )
         }
-        m.tip?.let { toast(it) }
+        if (m == CameraMode.MACRO && !cam.value.macroAvailable) toast("На этом телефоне нет камеры ближней фокусировки — макро недоступно")
+        else m.tip?.let { toast(it) }
         rebind()
         if (m.evBias != 0) controller.setExposureIndex(m.evBias * stepsPerEv())
     }
@@ -275,9 +301,62 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleHdr() { _ui.update { it.copy(hdr = !it.hdr) }; rebind() }
     fun toggleAiPro() { _ui.update { it.copy(aiPro = !it.aiPro, aiHint = null) }; aiEvOffset = 0; updateEffect() }
     fun setBeauty(on: Boolean) { _ui.update { it.copy(beautyOn = on) }; updateEffect() }
-    fun setFilter(id: String) { _ui.update { it.copy(filterId = id) }; updateEffect() }
+    fun setFilter(id: String) { _ui.update { it.copy(filterId = id, filterAuto = false, modeLookOffer = null) }; updateEffect() }
+
+    // ---------- режимы как рецепты одной трубы ----------
+    fun modeSkinTone(m: CameraMode) = when (m) { CameraMode.PORTRAIT, CameraMode.VLOG, CameraMode.INTERVIEW -> 0.6f; else -> 0f }
+    fun modeWarmSat(m: CameraMode) = if (m == CameraMode.FOOD) 0.7f else 0f
+    /** Кино: плашки 2.39 в превью и в файле. */
+    fun modeFrame(m: CameraMode): com.maysk.camera.camera.FrameSpec? =
+        if (m == CameraMode.CINEMATIC) com.maysk.camera.camera.FrameSpec(com.maysk.camera.camera.FrameStyle.CINEMA, android.graphics.Color.BLACK) else null
+
+    private val noFocus = floatArrayOf(0.5f, 0.5f, 0.2f, 0f)
+
+    /** Центр лица в координатах кадра GL (y вверх) для мягкого фона в портрете. */
+    private fun portraitFocus(u: CameraUi, l: com.maysk.camera.ai.LiveScene): FloatArray {
+        if (u.mode != CameraMode.PORTRAIT) return noFocus
+        val face = l.faces.maxByOrNull { it.box.width() }?.box ?: return floatArrayOf(0.5f, 0.55f, 0.22f, 0.55f)
+        val pv = previewView
+        val viewAspect = if (pv != null && pv.height > 0) pv.width.toFloat() / pv.height else 0.5f
+        val frameAspect = 0.75f
+        val fx = if (viewAspect < frameAspect) viewAspect / frameAspect else 1f
+        val fy = if (viewAspect > frameAspect) frameAspect / viewAspect else 1f
+        var cx = (face.centerX() - (1 - fx) / 2) / fx
+        if (u.front) cx = 1f - cx
+        val cy = (face.centerY() - (1 - fy) / 2) / fy
+        val r = (face.width() / fx) * viewAspect * 0.9f
+        return floatArrayOf(cx, 1f - cy, r.coerceIn(0.08f, 0.5f), 0.75f)
+    }
+
+    fun toggleNightVideo() {
+        _ui.update { it.copy(nightVideo = !it.nightVideo) }
+        toast(if (_ui.value.nightVideo) "🌙 Ночь: тени светлее, шумодав по кадрам, баланс белого фиксируется при записи" else "Ночной рецепт выключен")
+        updateEffect()
+    }
+
+    /** Применить «вид режима» (фильтр-рецепт режима) одной кнопкой. */
+    fun applyModeLook() {
+        val id = _ui.value.modeLookOffer ?: return
+        _ui.update { it.copy(filterId = id, filterAuto = true, modeLookOffer = null) }
+        updateEffect()
+    }
+
+    /**
+     * Общий «вид кадра» для всего, что снимается мимо видеокодера (таймлапс, бумеранг, серия, панорама):
+     * тот же фильтр, эффект и рамка, что видны в превью.
+     */
+    fun renderLook(b: Bitmap, withFrame: Boolean = true): Bitmap {
+        val u = _ui.value
+        val f0 = Filters.byId(u.filterId)
+        val f = f0.copy(skinTone = maxOf(f0.skinTone, modeSkinTone(u.mode)), warmSat = maxOf(f0.warmSat, modeWarmSat(u.mode)))
+        var out = Filters.render(b, f, u.filterIntensity, pre = Filters.adjustments(0f, -0.06f, 0f, 0f))
+        if (u.effect != Effect.NONE && u.effect != Effect.BG_BLUR) out = ImageOps.applyEffect(out, u.effect)
+        if (withFrame) u.frame?.let { fr -> out = com.maysk.camera.camera.Frames.apply(out, fr) }
+        if (withFrame && u.frame == null) modeFrame(u.mode)?.let { fr -> out = com.maysk.camera.camera.Frames.apply(out, fr) }
+        return out
+    }
     fun setFilterIntensity(v: Float) { _ui.update { it.copy(filterIntensity = v) }; updateEffect() }
-    fun setFrame(f: com.maysk.camera.camera.FrameSpec?) = _ui.update { it.copy(frame = f) }
+    fun setFrame(f: com.maysk.camera.camera.FrameSpec?) { _ui.update { it.copy(frame = f) }; updateEffect() }
     fun setArMask(m: com.maysk.camera.camera.ArMask) = _ui.update { it.copy(arMask = m) }
     fun setDualLayout(l: DualLayout) = _ui.update { it.copy(dualLayout = l) }
     fun setEffect(e: Effect) { _ui.update { it.copy(effect = e) }; updateEffect() }
@@ -357,23 +436,23 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             else -> 0f
         }
         val veryDark = l.mean < 0.12f
+        // ночной рецепт: кнопка «Ночь» в видео, режим «Ночь» (превью до снимка) или авто в темноте
+        val nightRecipe = (video && (u.nightVideo || controller.lowLight)) || u.mode == CameraMode.NIGHT
+        // Яркость всего кадра НЕ умножаем (gain только для фото-превью при AI и слегка) — поднимаем лишь тени
         val tGain = when {
-            aiVideo && s.aiVideoLight && veryDark -> 1.2f
-            (aiOn || (aiVideo && s.aiVideoLight)) && dark && u.mode != CameraMode.NIGHT -> 1.08f
+            !video && aiOn && dark && u.mode != CameraMode.NIGHT -> 1.05f
             else -> 1f
         }
         val tDenoise = when {
-            u.mode == CameraMode.NIGHT -> 0.6f
-            aiVideo && s.aiVideoNoise && veryDark -> 0.7f
-            aiVideo && s.aiVideoNoise && dark -> 0.5f
-            aiVideo && s.aiVideoNoise -> 0.1f
-            aiOn && dark -> 0.3f
+            nightRecipe -> if (veryDark) 0.45f else 0.3f      // пространственно — умеренно, основную работу делает шумодав по времени
+            aiVideo && s.aiVideoNoise && dark -> 0.3f
+            aiVideo && s.aiVideoNoise -> 0.08f
+            aiOn && dark -> 0.25f
             else -> 0f
         }
         val tLift = when {
-            u.mode == CameraMode.NIGHT -> 0.5f
-            aiVideo && s.aiVideoLight && veryDark -> 0.45f
-            aiVideo && s.aiVideoLight && dark -> 0.3f
+            nightRecipe -> if (veryDark) 0.6f else 0.4f
+            aiVideo && s.aiVideoLight && dark -> 0.25f
             aiOn && dark -> 0.15f
             else -> 0f
         }
@@ -397,6 +476,22 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             lift = smLift,
             log = if (u.mode == CameraMode.LOG || (video && s.colorProfile == com.maysk.camera.data.ColorProfile.LOG)) 1f else 0f,
             effect = u.effect.id,
+            lut = if (f.tone.isIdentity) null else Filters.lut(f),
+            lutMix = if (f.tone.isIdentity) 0f else u.filterIntensity,
+            grain = f.grain * u.filterIntensity,
+            leak = f.leak * u.filterIntensity,
+            // рецепт режима поверх фильтра человека (а не вместо него)
+            skinTone = maxOf(f.skinTone * u.filterIntensity, modeSkinTone(u.mode)),
+            warmSat = maxOf(f.warmSat * u.filterIntensity, modeWarmSat(u.mode)),
+            focus = portraitFocus(u, l),
+            frame = u.frame?.takeIf { !it.style.photoOnly } ?: modeFrame(u.mode),
+            // ночное видео: накопление кадров по времени убирает «кипящий» шум в тенях
+            // шумодав по времени: вес ~0.65 ≈ усреднение 3–4 последних кадров, движущееся берётся из текущего
+            temporal = when {
+                nightRecipe -> 0.65f
+                video && dark && s.aiVideoNoise -> 0.5f
+                else -> 0f
+            },
         )
     }
 
@@ -439,10 +534,9 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         // Ночное видео: включаем/выключаем с запасом, чтобы не дёргать камеру
         if (u.mode.recordsVideo && settings.value.aiVideoLight) {
             val want = if (controller.lowLight) l.mean < 0.24f else l.mean < 0.14f
-            if (want != controller.lowLight) {
+            if (want != controller.lowLight && !cam.value.recording) {
                 controller.lowLight = want
-                controller.applyRequestOptions(u.manual)
-                if (want) toast("🌙 Ночное видео: больше света и шумоподавление")
+                if (want && !u.nightVideo) toast("🌙 Темно — включён ночной рецепт видео")
             }
         } else if (controller.lowLight) {
             controller.lowLight = false
@@ -579,7 +673,9 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     u.front || u.mode == CameraMode.PORTRAIT || beauty -> 0.22f
                     else -> 0.38f
                 },
-                frame = u.frame,
+                frame = u.frame ?: modeFrame(u.mode),
+                modeSkinTone = modeSkinTone(u.mode),
+                modeWarmSat = modeWarmSat(u.mode),
                 arMask = u.arMask,
             )
             val out = withContext(Dispatchers.Default) { PhotoPipeline.process(raw, spec) }
@@ -636,7 +732,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             val file = java.io.File(ctx.cacheDir, "boomerang.mp4")
             val ok = withContext(Dispatchers.Default) {
                 val f = Filters.byId(_ui.value.filterId)
-                val processed = frames.map { ImageOps.colorMatrix(it, Filters.blended(f, _ui.value.filterIntensity)) }
+                val processed = frames.map { renderLook(it) }
                 val seq = processed + processed.reversed().drop(1).dropLast(1)
                 val enc = TimelapseEncoder(file, fps = 15)
                 repeat(3) { seq.forEach { enc.addFrame(it) } }
@@ -681,8 +777,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 val uri = withContext(Dispatchers.Default) {
                     // лёгкая обработка, чтобы серия была быстрой
                     val f = Filters.byId(_ui.value.filterId)
-                    var out = ImageOps.colorMatrix(b, Filters.concat(Filters.adjustments(0f, -0.06f, 0f, 0f), Filters.blended(f, _ui.value.filterIntensity)))
-                    out = ImageOps.vignetteAndFade(out, f.vignette, f.fade)
+                    val out = renderLook(b)
                     MediaStoreRepo.saveJpeg(ctx, out, if (s.photoQualityHigh) 94 else 86, name = MediaStoreRepo.newName("BURST"))
                 }
                 _ui.update { it.copy(burstCount = it.burstCount + 1, lastUri = uri ?: it.lastUri, lastIsVideo = false) }
@@ -711,8 +806,11 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         val withAudio = hasMic() && u.mode != CameraMode.SLOW_MOTION
         if (u.flash == FlashMode.ON) controller.setTorch(true)
         if (settings.value.shutterSound) runCatching { sound.play(MediaActionSound.START_VIDEO_RECORDING) }
+        // ночью баланс белого фиксируется на всю запись
+        if (u.nightVideo || controller.lowLight) controller.setAwbLock(true)
         val ok = controller.startRecording(withAudio) fin@{ uri, err ->
             controller.setTorch(false)
+            controller.setAwbLock(false)
             if (settings.value.shutterSound) runCatching { sound.play(MediaActionSound.STOP_VIDEO_RECORDING) }
             if (uri == null) { toast(err ?: "Видео не сохранено"); return@fin }
             viewModelScope.launch { postProcessVideo(uri, u.mode, withAudio) }
@@ -766,7 +864,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     val t0 = SystemClock.elapsedRealtime()
                     val b = runCatching { controller.captureBitmap(settings.value.mirrorFront) }.getOrNull()
                     if (b != null) {
-                        withContext(Dispatchers.Default) { enc.addFrame(b) }
+                        withContext(Dispatchers.Default) { enc.addFrame(renderLook(ImageOps.limitSize(b, 1920))) }
                         _ui.update { it.copy(timelapseFrames = it.timelapseFrames + 1) }
                     }
                     val wait = (_ui.value.timelapseInterval * 1000).toLong() - (SystemClock.elapsedRealtime() - t0)
@@ -790,21 +888,98 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private val panoFrames = mutableListOf<Bitmap>()
+    private val panoYaws = mutableListOf<Float>()
     private var panoJob: Job? = null
+    private var panoHold = false
+
+    /**
+     * Панорама по гироскопу: кадр снимается автоматически, когда камера повернулась
+     * примерно на 30% угла обзора. Экспозиция и баланс белого зафиксированы — швов не видно.
+     */
+    private var panoDir = 0
+    private var panoStepFrac = 0.3f
+    private var lastMoveAt = 0L
 
     private fun startPanorama() {
-        panoFrames.clear()
-        _ui.update { it.copy(panoramaActive = true, panoramaFrames = 0, busy = "Панорама") }
+        panoFrames.clear(); panoYaws.clear()
+        panoDir = 0; lastMoveAt = SystemClock.elapsedRealtime()
+        _ui.update { it.copy(panoGhost = null, panoRibbon = emptyList(), panoShift = 0f, panoDirRight = true) }
+        val gyroOk = stabilizer.available
+        panoHold = true
+        if (gyroOk) stabilizer.start()
+        controller.setAeAwbLock(true)
+        val tanU = (controller.fovTangents().first / cam.value.zoom.coerceAtLeast(0.3f)).coerceIn(0.15f, 1.5f)
+        val fov = 2f * kotlin.math.atan(tanU)
+        // следующий кадр — после поворота на ~15–20°, но с перекрытием не меньше ~55%
+        val step = (fov * 0.3f).coerceIn(0.26f, 0.35f).coerceAtMost(fov * 0.45f)
+        panoStepFrac = step / fov
+        _ui.update { it.copy(panoramaActive = true, panoramaFrames = 0, panoramaProgress = 0f, busy = "Панорама", panoramaHint = "Плавно поворачивайте телефон в одну сторону") }
         playShutter()
         panoJob = viewModelScope.launch {
-            while (isActive && _ui.value.panoramaActive && panoFrames.size < 16) {
-                runCatching { controller.captureBitmap(false) }.getOrNull()?.let {
-                    panoFrames += ImageOps.limitSize(it, 1600)
-                    _ui.update { s -> s.copy(panoramaFrames = panoFrames.size) }
+            try {
+                delay(250)   // даём зафиксировать экспозицию
+                suspend fun grab(): Boolean {
+                    val y0 = stabilizer.rawYaw
+                    val b = runCatching { controller.captureBitmap(false) }.getOrNull() ?: return false
+                    val y1 = stabilizer.rawYaw
+                    val fr = ImageOps.limitSize(b, 1280)
+                    panoFrames += fr
+                    panoYaws += (y0 + y1) / 2f
+                    // край кадра (четверть ширины) — полупрозрачная «граница» для следующего кадра, и мини-лента
+                    val small = ImageOps.limitSize(fr, 360)
+                    val qw = small.width / 4
+                    val dirRight = panoDir >= 0
+                    val ghost = Bitmap.createBitmap(small, if (dirRight) small.width - qw else 0, 0, qw, small.height)
+                    val thumb = ImageOps.limitSize(fr, 120)
+                    _ui.update { s -> s.copy(panoramaFrames = panoFrames.size, panoGhost = ghost, panoRibbon = s.panoRibbon + thumb, panoShift = 0f) }
+                    return true
                 }
-                delay(350)
+                grab()
+                val startYaw = panoYaws.firstOrNull() ?: 0f
+                val startPitch = stabilizer.rawPitch
+                var lastYaw = startYaw
+                val maxFrames = 12
+                val total = (Math.PI.toFloat() * 1.2f)   // до ~215°
+                while (isActive && _ui.value.panoramaActive && panoFrames.size < maxFrames) {
+                    if (!gyroOk) { delay(700); grab(); continue }
+                    delay(25)
+                    val yaw = stabilizer.rawYaw
+                    // направление: рост угла = поворот влево (гироскоп Android, ось Y вверх)
+                    if (panoDir == 0 && kotlin.math.abs(yaw - startYaw) > 0.05f) {
+                        panoDir = if (yaw < startYaw) 1 else -1
+                        // пересобираем «границу» под выбранное направление
+                        panoFrames.lastOrNull()?.let { fr ->
+                            val small = ImageOps.limitSize(fr, 360); val qw = small.width / 4
+                            val g = Bitmap.createBitmap(small, if (panoDir > 0) small.width - qw else 0, 0, qw, small.height)
+                            _ui.update { it.copy(panoGhost = g, panoDirRight = panoDir > 0) }
+                        }
+                    }
+                    val moved = kotlin.math.abs(yaw - lastYaw)
+                    val tilt = kotlin.math.abs(stabilizer.rawPitch - startPitch)
+                    if (stabilizer.rate > 0.08f) lastMoveAt = SystemClock.elapsedRealtime()
+                    val still = SystemClock.elapsedRealtime() - lastMoveAt > 1500
+                    val hint = when {
+                        stabilizer.rate > 1.0f -> "Медленнее"
+                        tilt > 0.12f -> "Держите телефон ровно по горизонту"
+                        still -> if (panoDir < 0) "← Ведите влево" else "Ведите вправо →"
+                        else -> "Совместите кадр с полупрозрачной полосой"
+                    }
+                    val shift = (moved / fov).coerceIn(0f, 1f)
+                    if (kotlin.math.abs(_ui.value.panoShift - shift) > 0.005f) _ui.update { it.copy(panoShift = shift) }
+                    val progress = (kotlin.math.abs(yaw - startYaw) / total).coerceIn(0f, 1f)
+                    if (_ui.value.panoramaHint != hint || kotlin.math.abs(_ui.value.panoramaProgress - progress) > 0.01f)
+                        _ui.update { it.copy(panoramaHint = hint, panoramaProgress = progress) }
+                    if (moved >= step && stabilizer.rate < 1.6f) {
+                        if (grab()) lastYaw = panoYaws.last()
+                    }
+                    if (progress >= 1f) break
+                }
+            } finally {
+                controller.setAeAwbLock(false)
+                panoHold = false
+                configureStabilizer()
             }
-            finishPanorama()
+            finishPanorama(tanU)
         }
     }
 
@@ -812,15 +987,24 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         _ui.update { it.copy(panoramaActive = false) }
     }
 
-    private suspend fun finishPanorama() {
-        _ui.update { it.copy(panoramaActive = false, busy = "Склейка панорамы…") }
-        val frames = panoFrames.toList()
-        panoFrames.clear()
-        val pano = withContext(Dispatchers.Default) { runCatching { VideoTools.stitchPanorama(frames) }.getOrNull() }
-        val uri = pano?.let { MediaStoreRepo.saveJpeg(ctx, it, 94) }
+    private suspend fun finishPanorama(tanU: Float) {
+        _ui.update { it.copy(panoramaActive = false, busy = "Склейка панорамы…", panoramaHint = null, panoGhost = null, panoRibbon = emptyList()) }
+        val frames = panoFrames.toList(); val yaws = panoYaws.toFloatArray()
+        panoFrames.clear(); panoYaws.clear()
+        if (frames.size < 2) {
+            _ui.update { it.copy(busy = null, message = "Поверните телефон дальше — нужно минимум 2 кадра") }
+            return
+        }
+        val pano = withContext(Dispatchers.Default) {
+            runCatching {
+                VideoTools.stitchPanorama(frames, if (stabilizer.available) yaws else null, tanU)
+                    ?.let { renderLook(it, withFrame = false) }   // выбранный фильтр и на панораме
+            }.getOrNull()
+        }
+        val uri = pano?.let { MediaStoreRepo.saveJpeg(ctx, it, 94, name = MediaStoreRepo.newName("PANO")) }
         _ui.update {
             it.copy(busy = null, lastUri = uri ?: it.lastUri, lastIsVideo = false,
-                message = if (uri == null) "Не удалось склеить панораму — двигайте камеру медленнее" else "Панорама сохранена")
+                message = if (uri == null) "Не удалось склеить панораму — поворачивайте телефон медленнее и ровнее" else "Панорама сохранена · ${frames.size} кадров")
         }
     }
     // endregion

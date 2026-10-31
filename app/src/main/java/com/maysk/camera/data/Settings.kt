@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.map
 
 private val Context.dataStore by preferencesDataStore(name = "maysk_settings")
 
-enum class VideoRes(val label: String) { HD("720p"), FHD("1080p"), UHD("4K"), UHD8K("8K") }
+enum class VideoRes(val label: String) { HD("720p"), FHD("1080p"), UHD("4K"), UHD8K("Макс.") }
 /**
  * Уровни стабилизации. [tau] — насколько плавно камера «следует» за движением (с),
  * [margin] — запас кадра на компенсацию (доля). Уровни с tau > 0 — собственная гироскопная

@@ -120,7 +120,7 @@ object AiEnhancer {
         val eyes = p.faces.flatMap { it.eyes }
         if (eyes.isNotEmpty()) out = ImageOps.enhanceEyes(out, eyes, max(0.01f, (p.faces.maxOf { it.box.width() }) * 0.09f), p.eyes)
         out = ImageOps.smartSharpen(out, p.sharpen * 1.3f)
-        if (withFilter && p.filterId != null) out = ImageOps.colorMatrix(out, Filters.blended(Filters.byId(p.filterId), 0.6f))
+        if (withFilter && p.filterId != null) out = Filters.render(out, Filters.byId(p.filterId), 0.6f, vignette = false)
         return out
     }
 }
@@ -145,6 +145,8 @@ data class PhotoSpec(
     val detail: Float = 0.35f,
     /** Рамка для фото. */
     val frame: com.maysk.camera.camera.FrameSpec? = null,
+    val modeSkinTone: Float = 0f,
+    val modeWarmSat: Float = 0f,
     /** AR-маска, которая дорисовывается на лица. */
     val arMask: com.maysk.camera.camera.ArMask = com.maysk.camera.camera.ArMask.NONE,
 )
@@ -183,10 +185,11 @@ object PhotoPipeline {
         // (в AI-режиме резкость уже добавлена планом — не удваиваем, иначе белые контуры)
         if (spec.detail > 0f && !spec.aiAuto) out = ImageOps.smartSharpen(out, spec.detail)
         if (spec.sharpen > 0f) out = ImageOps.smartSharpen(out, spec.sharpen)
-        val f = Filters.byId(spec.filterId)
-        if (f != Filters.ORIGINAL && spec.filterIntensity > 0f) {
-            out = ImageOps.colorMatrix(out, Filters.blended(f, spec.filterIntensity))
-            out = ImageOps.vignetteAndFade(out, f.vignette * spec.filterIntensity, f.fade * spec.filterIntensity)
+        val f0 = Filters.byId(spec.filterId)
+        // рецепт режима (кожа, еда) поверх фильтра человека — так же, как в живом шейдере
+        val f = f0.copy(skinTone = maxOf(f0.skinTone, spec.modeSkinTone), warmSat = maxOf(f0.warmSat, spec.modeWarmSat))
+        if ((f != Filters.ORIGINAL || Filters.hasExtras(f)) && spec.filterIntensity > 0f) {
+            out = Filters.render(out, f, spec.filterIntensity)
         }
         if (spec.effect == Effect.BG_BLUR && !spec.portraitBlur && faces.isNotEmpty()) {
             Vision.personMask(ImageOps.limitSize(out, 512))?.let { (m, w, h) -> out = ImageOps.blurBackground(out, m, w, h, 0.55f) }

@@ -395,6 +395,20 @@ object VideoTools {
     // endregion
 
     /** Склейка панорамы из кадров, снятых при движении слева направо. */
+    /** Панорама по гироскопу: цилиндрическая проекция, уточнение сдвигов, выравнивание яркости, швы без полос. */
+    fun stitchPanorama(frames: List<Bitmap>, yaws: FloatArray?, tanHalfFov: Float): Bitmap? {
+        if (frames.size < 2) return frames.firstOrNull()
+        val w = frames[0].width; val h = frames[0].height
+        val imgs = frames.map { b ->
+            val bb = if (b.width == w && b.height == h) b else Bitmap.createScaledBitmap(b, w, h, true)
+            val px = IntArray(w * h); bb.getPixels(px, 0, w, 0, 0, w, h)
+            PanoramaStitcher.Img(w, h, px)
+        }
+        // при неудаче — null (без «рваной» полосы из старого алгоритма): человеку скажем вести медленнее
+        val out = PanoramaStitcher.stitch(imgs, yaws, tanHalfFov) ?: return null
+        return Bitmap.createBitmap(out.px, out.w, out.h, Bitmap.Config.ARGB_8888)
+    }
+
     fun stitchPanorama(frames: List<Bitmap>): Bitmap? {
         if (frames.isEmpty()) return null
         if (frames.size == 1) return frames[0]

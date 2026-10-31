@@ -1,5 +1,8 @@
 package com.maysk.camera.ui.screens
 
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.filled.Fullscreen
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -39,6 +42,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.Brush
@@ -138,6 +142,10 @@ private data class Adjust(
         val f = Filters.byId(filterId)
         return if (f == Filters.ORIGINAL) adj else Filters.concat(adj, Filters.blended(f, filterIntensity))
     }
+    fun pre(): FloatArray = Filters.adjustments(brightness, contrast, saturation, warmth)
+    /** Полный рендер цвета: правки + фильтр (матрица и тональная кривая) + виньетка. */
+    fun render(b: Bitmap): Bitmap = Filters.render(b, Filters.byId(filterId), if (filterId == "original") 0f else filterIntensity, pre = pre())
+    val colorKey get() = listOf(brightness, contrast, saturation, warmth, filterId, filterIntensity)
 }
 
 private val cropOptions = listOf("Ориг." to 0f, "1:1" to 1f, "4:5" to 0.8f, "3:4" to 0.75f, "16:9" to 16f / 9f, "9:16" to 9f / 16f)
@@ -170,6 +178,8 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
     var brush by remember { mutableFloatStateOf(0.04f) }
     var plan by remember { mutableStateOf<EnhancePlan?>(null) }
     var framed by remember { mutableStateOf<Bitmap?>(null) }
+    var fullView by remember { mutableStateOf(false) }
+    var toned by remember { mutableStateOf<Pair<Any, Bitmap>?>(null) }   // точный цвет (с кривой фильтра)
     var selectedOverlay by remember { mutableStateOf<Long?>(null) }
     var textDraft by remember { mutableStateOf("") }
 
@@ -274,7 +284,18 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
         val p = processed ?: preview
         if (f == null || p == null) { framed = null; return@LaunchedEffect }
         delay(80)
-        framed = withContext(Dispatchers.Default) { com.maysk.camera.camera.Frames.apply(ImageOps.colorMatrix(p, adj.matrix()), f) }
+        framed = withContext(Dispatchers.Default) { com.maysk.camera.camera.Frames.apply(adj.render(p), f) }
+    }
+
+    // Точный цвет превью: ColorFilter даёт мгновенный отклик, а через ~60 мс показываем
+    // настоящий рендер с тональной кривой фильтра.
+    LaunchedEffect(processed, preview, adj.colorKey) {
+        val p = processed ?: preview ?: return@LaunchedEffect
+        val a = adj
+        val key = listOf(p, a.colorKey)
+        delay(60)
+        val r = withContext(Dispatchers.Default) { a.render(p) }
+        toned = key to r
     }
 
     fun save() {
@@ -285,9 +306,7 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
                 var r = ImageOps.crop(b, cropRect(b.width, b.height, cropOptions[adj.crop].second))
                 r = ImageOps.localToneMap(r, adj.shadows, adj.highlights, 0.2f)
                 if (adj.detail > 0f) r = ImageOps.smartSharpen(r, adj.detail * 1.2f)
-                r = ImageOps.colorMatrix(r, adj.matrix())
-                val f = Filters.byId(adj.filterId)
-                r = ImageOps.vignetteAndFade(r, f.vignette * adj.filterIntensity, f.fade * adj.filterIntensity)
+                r = adj.render(r)
                 r = ImageOps.drawOverlays(r, adj.overlays)
                 adj.frame?.let { fr -> r = com.maysk.camera.camera.Frames.apply(r, fr) }
                 r
@@ -299,7 +318,8 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
     }
 
     Column(Modifier.fillMaxSize().background(Maysk.colors.bg)) {
-        ScreenHeader("AI Редактор", onBack = onBack, accentIcon = Icons.Filled.AutoAwesome) {
+        if (!fullView) ScreenHeader("AI Редактор", onBack = onBack, accentIcon = Icons.Filled.AutoAwesome) {
+            IconButton(onClick = { fullView = true }) { Icon(Icons.Filled.Fullscreen, "Во весь экран", tint = Maysk.colors.text) }
             if (undo.isNotEmpty()) IconButton(onClick = { val last = undo.removeAt(undo.lastIndex); setBase(last, pushUndo = false) }) {
                 Icon(Icons.Filled.Undo, "Отменить", tint = Maysk.colors.text)
             }
@@ -307,13 +327,15 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
         }
 
         // ---------- изображение ----------
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().then(if (fullView) Modifier.background(Color.Black).statusBarsPadding() else Modifier.padding(horizontal = 4.dp)), contentAlignment = Alignment.Center) {
             val showFrame = framed != null && tool != EditTool.REMOVE && tool != EditTool.CROP
-            val shown = (if (showFrame) framed else null) ?: processed ?: preview
+            val raw = processed ?: preview
+            val exact = toned?.takeIf { it.first == listOf(raw, adj.colorKey) }?.second
+            val shown = (if (showFrame) framed else null) ?: exact ?: raw
             if (shown != null) {
                 val aspect = shown.width.toFloat() / shown.height
                 val cr = cropOptions[adj.crop].second
-                val cf = if (showFrame) null else ColorFilter.colorMatrix(ColorMatrix(adj.matrix()))
+                val cf = if (showFrame || exact != null) null else ColorFilter.colorMatrix(ColorMatrix(adj.matrix()))
                 Box(
                     Modifier
                         .aspectRatio(aspect, matchHeightConstraintsFirst = maxWidth / maxHeight > aspect)
@@ -414,7 +436,14 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
                     Text(it, color = Color.White, modifier = Modifier.padding(top = 8.dp))
                 }
             }
+            if (fullView) Text(
+                "✕  Выйти из полноэкранного", color = Color.White, fontSize = 13.sp,
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp)
+                    .clip(RoundedCornerShape(20.dp)).background(Color.Black.copy(alpha = 0.6f))
+                    .clickable { fullView = false }.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
         }
+        if (!fullView) {
 
         plan?.let { p ->
             if (p.recommendations.isNotEmpty()) Text(
@@ -423,8 +452,8 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
             )
         }
 
-        // ---------- параметры инструмента ----------
-        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        // ---------- параметры инструмента (компактно, с прокруткой) ----------
+        Box(Modifier.fillMaxWidth().heightIn(max = 210.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             when (tool) {
                 EditTool.CROP -> Column {
                     ChoiceRow(cropOptions.map { it.first }, adj.crop) { adj = adj.copy(crop = it) }
@@ -445,23 +474,19 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
                 }
                 EditTool.DETAIL -> LabeledSlider("Детали / резкость", adj.detail) { adj = adj.copy(detail = it) }
                 EditTool.FILTER -> Column {
+                    val cur = Filters.byId(adj.filterId)
+                    val fl = remember { Filters.search("", null) }
+                    val tb = remember(preview) { preview?.let { ImageOps.limitSize(it, 200) } }
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(Filters.all) { f ->
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { adj = adj.copy(filterId = f.id) }) {
-                                preview?.let { p ->
-                                    Image(
-                                        p.asImageBitmap(), null, contentScale = ContentScale.Crop,
-                                        colorFilter = ColorFilter.colorMatrix(ColorMatrix(f.matrix)),
-                                        modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)).border(2.dp, if (adj.filterId == f.id) Accent else Color.Transparent, RoundedCornerShape(8.dp))
-                                    )
-                                }
-                                Text(f.name, color = if (adj.filterId == f.id) Accent else Maysk.colors.text, fontSize = 10.sp)
+                        items(fl, key = { it.id }) { f ->
+                            com.maysk.camera.ui.components.FilterTile(tb, f, f.id == adj.filterId, 56.dp, Maysk.colors.text) {
+                                adj = adj.copy(filterId = f.id)
                             }
                         }
                     }
                     if (adj.filterId != "original") LabeledSlider("Интенсивность", adj.filterIntensity) { adj = adj.copy(filterIntensity = it) }
                 }
-                EditTool.FRAME -> FramePicker(adj.frame) { adj = adj.copy(frame = it) }
+                EditTool.FRAME -> FramePicker(adj.frame, preview) { adj = adj.copy(frame = it) }
                 EditTool.TEXT -> Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         androidx.compose.material3.OutlinedTextField(
@@ -517,8 +542,8 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
             }
         }
 
-        // ---------- AI инструменты ----------
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+        // ---------- AI инструменты (скрыты, пока открыт инструмент — фото остаётся крупным) ----------
+        if (tool == EditTool.NONE) Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
             EditAction(Icons.Filled.AutoFixHigh, "Улучшить", accent = true) { tool = EditTool.NONE; enhance() }
             EditAction(Icons.Filled.Brush, "Удалить объект", tool == EditTool.REMOVE) { tool = if (tool == EditTool.REMOVE) EditTool.NONE else EditTool.REMOVE }
             EditAction(Icons.Filled.Wallpaper, "Фон", tool == EditTool.BACKGROUND) { tool = if (tool == EditTool.BACKGROUND) EditTool.NONE else EditTool.BACKGROUND }
@@ -527,7 +552,7 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
             EditAction(Icons.Filled.Restore, "Реставрация") { tool = EditTool.NONE; restore() }
         }
         LazyRow(
-            Modifier.fillMaxWidth().navigationBarsPadding().padding(vertical = 8.dp),
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
         ) {
@@ -540,6 +565,7 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
                 EditTool.STICKER to Icons.Filled.EmojiEmotions,
             )
             items(tools) { (t, ic) -> EditAction(ic, t.title, tool == t) { tool = if (tool == t) EditTool.NONE else t } }
+        }
         }
     }
 }
@@ -568,35 +594,83 @@ private fun OverlayControls(o: ImageOps.TextOverlay?, onChange: (ImageOps.TextOv
     }
 }
 
-/** Выбор рамки: стиль, цвет, толщина, прозрачность, скругление, тень. */
+/** Выбор рамки по картинкам: категории, миниатюры, свёрнутые настройки (цвет, толщина, подпись…). */
 @Composable
-fun FramePicker(current: com.maysk.camera.camera.FrameSpec?, onChange: (com.maysk.camera.camera.FrameSpec?) -> Unit) {
+fun FramePicker(
+    current: com.maysk.camera.camera.FrameSpec?,
+    sample: Bitmap? = null,
+    videoMode: Boolean = false,
+    onChange: (com.maysk.camera.camera.FrameSpec?) -> Unit,
+) {
     val F = com.maysk.camera.camera.Frames
+    val FS = com.maysk.camera.camera.FrameStyle
+    var cat by remember { mutableStateOf<String?>(null) }
+    var tune by remember { mutableStateOf(false) }
+    val base = remember(sample) {
+        val src = sample ?: com.maysk.camera.ui.components.filterSample
+        // миниатюра 3:4
+        val w = src.width; val h = src.height
+        val cw = minOf(w, h * 3 / 4); val ch = minOf(h, w * 4 / 3)
+        Bitmap.createScaledBitmap(Bitmap.createBitmap(src, (w - cw) / 2, (h - ch) / 2, cw, ch), 120, 160, true)
+    }
+    val styles = remember(cat, videoMode) { FS.entries.filter { (cat == null || it.category == cat) && !(videoMode && it.photoOnly) } }
     Column {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            item { Pill("Без рамки", current == null) { onChange(null) } }
-            items(com.maysk.camera.camera.FrameStyle.entries) { st ->
-                Pill(st.title, current?.style == st) { onChange(F.default(st)) }
+            item { Pill("Все ${FS.entries.size}", cat == null) { cat = null } }
+            items(FS.categories) { c -> Pill(c, cat == c) { cat = c } }
+        }
+        LazyRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(60.dp).clickable { onChange(null) }) {
+                    Box(
+                        Modifier.size(54.dp, 72.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF2A2630))
+                            .border(2.dp, if (current == null) Accent else Color.Transparent, RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
+                    ) { Icon(Icons.Filled.Block, null, tint = Color.White) }
+                    Text("Без", color = if (current == null) Accent else Maysk.colors.text, fontSize = 10.sp, maxLines = 1)
+                }
+            }
+            items(styles, key = { it.name }) { st ->
+                val spec = if (current?.style == st) current else F.default(st)
+                val thumb by androidx.compose.runtime.produceState<Bitmap?>(null, base, st) {
+                    value = withContext(Dispatchers.Default) { runCatching { F.thumbnail(base, F.default(st)) }.getOrNull() }
+                }
+                val sel = current?.style == st
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(60.dp).clickable { onChange(spec) }) {
+                    Box(
+                        Modifier.size(54.dp, 72.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF2A2630))
+                            .border(2.dp, if (sel) Accent else Color.Transparent, RoundedCornerShape(8.dp))
+                    ) { thumb?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) } }
+                    Text(st.title, color = if (sel) Accent else Maysk.colors.text, fontSize = 10.sp, maxLines = 1)
+                }
             }
         }
         if (current != null) {
-            LazyRow(Modifier.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(F.palette) { col ->
-                    Box(
-                        Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(Color(col))
-                            .border(2.dp, if (current.color == col) Accent else Color.Gray.copy(alpha = 0.5f), CircleShape)
-                            .clickable { onChange(current.copy(color = col)) }
-                    )
+            Text(
+                if (tune) "Скрыть настройки ▴" else "Настроить рамку ▾", color = Accent, fontSize = 12.sp,
+                modifier = Modifier.padding(top = 4.dp).clickable { tune = !tune }.padding(vertical = 4.dp)
+            )
+            if (tune) {
+                LazyRow(Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(F.palette) { col ->
+                        Box(
+                            Modifier.size(26.dp).clip(CircleShape).background(Color(col))
+                                .border(2.dp, if (current.color == col) Accent else Color.Gray.copy(alpha = 0.5f), CircleShape)
+                                .clickable { onChange(current.copy(color = col)) }
+                        )
+                    }
                 }
-            }
-            LabeledSlider("Толщина", current.thickness) { onChange(current.copy(thickness = it)) }
-            LabeledSlider("Скругление углов", current.radius) { onChange(current.copy(radius = it)) }
-            LabeledSlider("Прозрачность", 1f - current.opacity, "${((1f - current.opacity) * 100).toInt()}") { onChange(current.copy(opacity = 1f - it)) }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Pill("Тень", current.shadow) { onChange(current.copy(shadow = !current.shadow)) }
+                LabeledSlider("Толщина", current.thickness) { onChange(current.copy(thickness = it)) }
+                LabeledSlider("Скругление", current.radius) { onChange(current.copy(radius = it)) }
+                LabeledSlider("Прозрачность", 1f - current.opacity, "${((1f - current.opacity) * 100).toInt()}") { onChange(current.copy(opacity = 1f - it)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = current.caption, onValueChange = { onChange(current.copy(caption = it.take(40))) }, singleLine = true,
+                        placeholder = { Text("Подпись на рамке") }, modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Pill("Тень", current.shadow) { onChange(current.copy(shadow = !current.shadow)) }
+                }
             }
         }
     }
@@ -604,12 +678,12 @@ fun FramePicker(current: com.maysk.camera.camera.FrameSpec?, onChange: (com.mays
 
 @Composable
 private fun EditAction(icon: ImageVector, label: String, selected: Boolean = false, accent: Boolean = false, onClick: () -> Unit) {
-    Column(Modifier.clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 4.dp).width(64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.clickable(onClick = onClick).padding(horizontal = 4.dp, vertical = 2.dp).width(58.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
-            Modifier.size(42.dp).clip(CircleShape).background(if (selected || accent) Accent else Maysk.colors.surface2),
+            Modifier.size(36.dp).clip(CircleShape).background(if (selected || accent) Accent else Maysk.colors.surface2),
             contentAlignment = Alignment.Center
-        ) { Icon(icon, label, tint = Color.White, modifier = Modifier.size(22.dp)) }
-        Text(label, color = if (selected) Accent else Maysk.colors.text, fontSize = 10.sp, maxLines = 2, modifier = Modifier.padding(top = 2.dp))
+        ) { Icon(icon, label, tint = Color.White, modifier = Modifier.size(20.dp)) }
+        Text(label, color = if (selected) Accent else Maysk.colors.text, fontSize = 10.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
     }
 }
 
@@ -629,16 +703,17 @@ fun FiltersScreen(uri: Uri, onBack: () -> Unit, onSaved: (Uri) -> Unit) {
         img = MediaStoreRepo.loadBitmap(ctx, uri, 1600)
         thumb = img?.let { ImageOps.limitSize(it, 240) }
     }
-    val cats = listOf<FilterCategory?>(null) + FilterCategory.entries
+    val cats = listOf<FilterCategory?>(null) + FilterCategory.entries.filter { c -> Filters.all.any { it.category == c } }
     Column(Modifier.fillMaxSize().background(Maysk.colors.bg)) {
         ScreenHeader("Фильтры", onClose = onBack)
-        Box(Modifier.fillMaxWidth().height(280.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
-            img?.let {
-                Image(
-                    it.asImageBitmap(), null, contentScale = ContentScale.Fit,
-                    colorFilter = ColorFilter.colorMatrix(ColorMatrix(Filters.blended(Filters.byId(sel), intensity))),
-                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp))
-                )
+        val shownImg by androidx.compose.runtime.produceState<Bitmap?>(null, img, sel, intensity) {
+            val i = img ?: return@produceState
+            delay(40)
+            value = withContext(Dispatchers.Default) { Filters.render(ImageOps.limitSize(i, 1200), Filters.byId(sel), intensity) }
+        }
+        Box(Modifier.fillMaxWidth().height(320.dp).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+            (shownImg ?: img)?.let {
+                Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)))
             } ?: CircularProgressIndicator(color = Accent)
         }
         LazyRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -652,17 +727,15 @@ fun FiltersScreen(uri: Uri, onBack: () -> Unit, onSaved: (Uri) -> Unit) {
         )
         val list = remember(cat, query) { Filters.search(query, cats[cat]) }
         LazyVerticalGrid(GridCells.Fixed(3), Modifier.weight(1f).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(list) { f ->
+            items(list, key = { it.id }) { f ->
+                val on = sel == f.id
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { sel = f.id }) {
-                    thumb?.let {
-                        Image(
-                            it.asImageBitmap(), null, contentScale = ContentScale.Crop,
-                            colorFilter = ColorFilter.colorMatrix(ColorMatrix(f.matrix)),
-                            modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp))
-                                .border(2.dp, if (sel == f.id) Accent else Color.Transparent, RoundedCornerShape(10.dp))
-                        )
-                    }
-                    Text(f.name, color = if (sel == f.id) Accent else Maysk.colors.text, fontSize = 12.sp)
+                    com.maysk.camera.ui.components.FilterThumb(
+                        thumb, f,
+                        Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp))
+                            .border(2.dp, if (on) Accent else Color.Transparent, RoundedCornerShape(10.dp))
+                    )
+                    Text(f.name, color = if (on) Accent else Maysk.colors.text, fontSize = 12.sp, maxLines = 1)
                 }
             }
         }
@@ -674,7 +747,7 @@ fun FiltersScreen(uri: Uri, onBack: () -> Unit, onSaved: (Uri) -> Unit) {
                     val full = MediaStoreRepo.loadBitmap(ctx, uri, 4000) ?: return@launch
                     val f = Filters.byId(sel)
                     val out = withContext(Dispatchers.Default) {
-                        ImageOps.vignetteAndFade(ImageOps.colorMatrix(full, Filters.blended(f, intensity)), f.vignette * intensity, f.fade * intensity)
+                        Filters.render(full, f, intensity)
                     }
                     val u = MediaStoreRepo.saveJpeg(ctx, out, 95, name = MediaStoreRepo.newName("FILTER"))
                     busy = false
