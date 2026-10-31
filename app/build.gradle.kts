@@ -94,9 +94,16 @@ dependencies {
 
     // ML Kit — работает на устройстве, без интернета
     implementation("com.google.mlkit:face-detection:16.1.7")
+    // 468-point 3D face mesh (bundled ML Kit model)
+    implementation("com.google.mlkit:face-mesh-detection:16.0.0-beta3")
     implementation("com.google.mlkit:image-labeling:17.0.9")
     implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
     implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0-beta1")
+
+    // Filament runtime + glTF 2.0 asset loader. Renderer integration follows in stage 2.
+    implementation("com.google.android.filament:filament-android:1.56.0")
+    implementation("com.google.android.filament:gltfio-android:1.56.0")
+    implementation("com.google.android.filament:filament-utils-android:1.56.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")

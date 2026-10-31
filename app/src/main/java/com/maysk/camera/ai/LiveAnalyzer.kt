@@ -38,6 +38,8 @@ class LiveAnalyzer(
     private var lastThumb = 0L
 
     private var lastFaces = 0L
+    private var lastFaceMesh = 0L
+    private var faceMeshes: List<FaceMeshInfo> = emptyList()
     private var lastLabels = 0L
     private var faces: List<FaceInfo> = emptyList()
     private var labels: List<Pair<String, Float>> = emptyList()
@@ -66,12 +68,20 @@ class LiveAnalyzer(
                     lastFaces = now
                     faces = runBlocking { Vision.faces(bmp, rotation, accurate = false) }
                 }
+                // Mesh inference is heavier than box/landmark detection; cap it at ~8 FPS.
+                if (realtimeFaces() && now - lastFaceMesh >= 125) {
+                    lastFaceMesh = now
+                    faceMeshes = runBlocking { Vision.faceMeshes(bmp, rotation) }
+                }
+                if (realtimeFaces() && faceMeshes.isNotEmpty()) {
+                    faces = faces.mapIndexed { index, face -> face.copy(mesh3d = faceMeshes.getOrNull(index)) }
+                }
                 if (now - lastLabels > 1500) {
                     lastLabels = now
                     labels = runBlocking { Vision.labels(bmp, rotation) }
                 }
             } else {
-                faces = emptyList(); labels = emptyList()
+                faces = emptyList(); labels = emptyList(); faceMeshes = emptyList()
             }
             val faceLuma = if (faces.isEmpty()) st.mean else faceLuminance(bmp, faces[0].box, rotation)
             onResult(

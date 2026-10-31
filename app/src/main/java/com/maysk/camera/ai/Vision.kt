@@ -7,6 +7,9 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
 import com.google.mlkit.vision.face.FaceLandmark
+import com.google.mlkit.vision.facemesh.FaceMeshDetection
+import com.google.mlkit.vision.facemesh.FaceMeshDetector
+import com.google.mlkit.vision.facemesh.FaceMeshDetectorOptions
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
 import com.google.mlkit.vision.segmentation.Segmentation
@@ -25,6 +28,13 @@ enum class SceneType(val title: String) {
  * Лицо в нормализованных координатах (0..1) вертикального кадра.
  * [roll] — наклон головы (градусы), [nose]/[mouth] — точки для AR-масок.
  */
+data class FaceMeshInfo(
+    /** 468 points in normalized image coordinates; each point is [x, y, z]. */
+    val vertices: List<FloatArray>,
+    /** Triangle vertex indices supplied by ML Kit. */
+    val triangles: List<IntArray>,
+)
+
 data class FaceInfo(
     val box: RectF,
     val eyes: List<PointF>,
@@ -37,6 +47,8 @@ data class FaceInfo(
     val rightEar: PointF? = null,
     val roll: Float = 0f,
     val yaw: Float = 0f,
+    /** Optional 468-point mesh; null when mesh tracking is disabled or unavailable. */
+    val mesh3d: FaceMeshInfo? = null,
 )
 
 data class VisionResult(
@@ -66,6 +78,9 @@ object Vision {
                 .build()
         )
     }
+    private val faceMeshDetector: FaceMeshDetector by lazy {
+        FaceMeshDetection.getClient(FaceMeshDetectorOptions.DEFAULT_OPTIONS)
+    }
     private val labeler by lazy { ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.55f).build()) }
     private val segmenter by lazy {
         Segmentation.getClient(SelfieSegmenterOptions.Builder().setDetectorMode(SelfieSegmenterOptions.SINGLE_IMAGE_MODE).build())
@@ -94,6 +109,34 @@ object Vision {
                 yaw = f.headEulerAngleY,
             )
         }
+    }
+
+
+    /**
+     * Detect 468 3D face landmarks and triangle topology.
+     * Coordinates are normalized to the upright input image so they can be
+     * transformed into the camera compositor coordinate space.
+     */
+    suspend fun faceMeshes(bitmap: Bitmap, rotation: Int = 0): List<FaceMeshInfo> {
+        val uprightW = if (rotation % 180 == 0) bitmap.width else bitmap.height
+        val uprightH = if (rotation % 180 == 0) bitmap.height else bitmap.width
+        return runCatching {
+            faceMeshDetector.process(InputImage.fromBitmap(bitmap, rotation)).await().map { mesh ->
+                val points = mesh.allPoints
+                val vertices = points.map { point ->
+                    val p = point.position
+                    floatArrayOf(
+                        (p.x / uprightW).coerceIn(-1f, 2f),
+                        (p.y / uprightH).coerceIn(-1f, 2f),
+                        p.z / uprightW.toFloat()
+                    )
+                }
+                val triangles = mesh.allTriangles.map { triangle ->
+                    triangle.allPoints().map { it.index }.toIntArray()
+                }
+                FaceMeshInfo(vertices, triangles)
+            }
+        }.getOrDefault(emptyList())
     }
 
     suspend fun labels(bitmap: Bitmap, rotation: Int = 0): List<Pair<String, Float>> =
