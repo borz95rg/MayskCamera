@@ -35,6 +35,19 @@ jobs:
             echo "::warning::Secret MAYSK_KEYSTORE_BASE64 не задан — APK подписан временным ключом, автообновление не сможет установиться поверх"
           fi
 
+      - name: Unit tests (3D-маски: GLB, координаты, трекинг)
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon testReleaseUnitTest
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: app/build/reports/tests/
+          if-no-files-found: ignore
+
       - name: Build APK
         env:
           MAYSK_KEYSTORE_PASSWORD: ${{ secrets.MAYSK_KEYSTORE_PASSWORD }}

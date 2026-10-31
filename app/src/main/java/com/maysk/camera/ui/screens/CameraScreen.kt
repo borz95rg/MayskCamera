@@ -186,7 +186,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
     val live by vm.live.collectAsState()
     val scope = rememberCoroutineScope()
     var panel by remember { mutableStateOf(Panel.NONE) }
-    var effectCategory by remember { mutableStateOf("Маски") }
+    var effectCategory by remember { mutableStateOf("3D-маски") }
     var focusPoint by remember { mutableStateOf<Offset?>(null) }
 
     val previewView = remember {
@@ -338,7 +338,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
             if (settings.grid) GridOverlay()
             if (settings.horizon && !recordingNow) HorizonOverlay()
             if (ui.arMask != com.maysk.camera.camera.ArMask.NONE) ArMaskOverlay(live.faces, ui.arMask, cam.front)
-            else FaceOverlay(live.faces.map { it.box }, cam.front)
+            else if (ui.ar3d == null) FaceOverlay(live.faces.map { it.box }, cam.front)
             if (ui.snapDrawing.isNotEmpty() || ui.snapDrawMode) Canvas(
                 Modifier.fillMaxSize().pointerInput(ui.snapDrawMode) {
                     if (ui.snapDrawMode) detectDragGestures(
@@ -505,7 +505,12 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     when (panel) {
-                        Panel.BROWSER -> EffectBrowser(
+                        Panel.BROWSER -> if (effectCategory == "3D-маски") Ar3dCatalog(
+                            current = ui.ar3d,
+                            tracking = ui.ar3dTracking,
+                            onSelect = vm::setAr3d,
+                            onBack = { effectCategory = "Все" },
+                        ) else EffectBrowser(
                             category = effectCategory,
                             onCategory = { effectCategory = it },
                             currentMask = ui.arMask,
@@ -1101,7 +1106,7 @@ private fun EffectBrowser(
     onFrames: () -> Unit,
     onDraw: () -> Unit,
 ) {
-    val categories = listOf("Все", "Животные", "Макияж", "3D-стили", "Фантазия", "Очки", "Стикеры", "Фильтры", "Фон", "Анимация", "Рамки", "Рисование")
+    val categories = listOf("3D-маски", "Все", "Животные", "Макияж", "3D-стили", "Фантазия", "Очки", "Стикеры", "Фильтры", "Фон", "Анимация", "Рамки", "Рисование")
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Эффекты для фото и видео", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
@@ -1141,7 +1146,7 @@ private fun EffectBrowser(
                     }
                 }
                 if (category == "Макияж") Pill("Настройки Face Beauty", false, onClick = onBeauty)
-                if (category == "3D-стили") Text("В этой категории собраны фантазийные AR-стили. Это 2D-наложения, не полноценные объёмные 3D-модели.", color = Color.LightGray, fontSize = 10.sp)
+                if (category == "3D-стили") Text("Это плоские AR-стили. Объёмные маски — в разделе «3D-маски».", color = Color.LightGray, fontSize = 10.sp)
             }
             "Фильтры" -> LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 items(com.maysk.camera.camera.Filters.all.filter { it.id != "original" }, key = { it.id }) { f ->
@@ -1172,6 +1177,66 @@ private fun EffectBrowser(
             "Рамки" -> Pill("Выбрать рамку", false, onClick = onFrames)
             "Рисование" -> Pill("Открыть рисование и стикеры", false, onClick = onDraw)
         }
+    }
+}
+
+/**
+ * Каталог 3D-масок: категории, карточки с превью, избранное (долгое нажатие — ★), выбор, возврат.
+ * Выбранная маска рисуется в GL-кадре — видна в превью и попадает в фото и видео.
+ */
+@Composable
+private fun Ar3dCatalog(current: String?, tracking: Boolean, onSelect: (String?) -> Unit, onBack: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var cat by remember { mutableStateOf("Новые") }
+    var favTick by remember { mutableStateOf(0) }
+    val items = remember(cat, favTick) { com.maysk.camera.ar3d.ArCatalog.byCategory(ctx, cat) }
+    val favs = remember(favTick) { com.maysk.camera.ar3d.ArCatalog.favorites(ctx) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("‹ Эффекты", color = Color(0xFF7FFFE0), fontSize = 13.sp, modifier = Modifier.clickable(onClick = onBack).padding(end = 10.dp))
+            Text("3D-маски", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            if (current != null) Text(
+                if (tracking) "● лицо найдено" else "○ ищу лицо…",
+                color = if (tracking) Color(0xFF63E6C2) else Color.LightGray, fontSize = 11.sp
+            )
+        }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(com.maysk.camera.ar3d.ArCatalog.categories) { c -> Pill(c, cat == c) { cat = c } }
+        }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            item {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(70.dp).clickable { onSelect(null) }) {
+                    Box(Modifier.size(62.dp).clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.10f))
+                        .border(if (current == null) 2.dp else 1.dp, if (current == null) Accent else Color.White.copy(alpha = 0.12f), RoundedCornerShape(18.dp)),
+                        contentAlignment = Alignment.Center) { Text("✕", color = Color.White, fontSize = 22.sp) }
+                    Text("Без маски", color = Color.White, fontSize = 10.sp, maxLines = 1)
+                }
+            }
+            items(items, key = { it.id }) { e ->
+                val sel = current == e.id
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.width(70.dp).pointerInput(e.id) {
+                        detectTapGestures(
+                            onTap = { onSelect(e.id) },
+                            onLongPress = { com.maysk.camera.ar3d.ArCatalog.toggleFavorite(ctx, e.id); favTick++ }
+                        )
+                    }
+                ) {
+                    Box(Modifier.size(62.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xFF221E2A))
+                        .border(if (sel) 2.dp else 1.dp, if (sel) Accent else Color.White.copy(alpha = 0.12f), RoundedCornerShape(18.dp))) {
+                        AsyncImage(model = "file:///android_asset/" + e.preview, contentDescription = e.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        if (e.id in favs) Text("★", color = Color(0xFFFFD54F), fontSize = 12.sp, modifier = Modifier.align(Alignment.TopEnd).padding(3.dp))
+                    }
+                    Text(e.title, color = if (sel) Color(0xFF7FFFE0) else Color.White, fontSize = 10.sp, maxLines = 1)
+                }
+            }
+        }
+        Text(
+            if (items.isEmpty() && cat == "Избранное") "Долгое нажатие на маску добавляет её в избранное"
+            else "Объёмные маски следуют за поворотом головы и записываются в фото и видео. Долгое нажатие — в избранное.",
+            color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp
+        )
     }
 }
 

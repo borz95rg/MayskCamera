@@ -106,6 +106,10 @@ data class CameraUi(
     val frame: com.maysk.camera.camera.FrameSpec? = null,
     /** AR-маска на лице. */
     val arMask: com.maysk.camera.camera.ArMask = com.maysk.camera.camera.ArMask.NONE,
+    /** Выбранная 3D-маска (id из assets/ar_models/catalog.json) или null. */
+    val ar3d: String? = null,
+    /** Лицо для 3D-маски сейчас найдено. */
+    val ar3dTracking: Boolean = false,
     val snapMode: Boolean = false,
     val snapSeconds: Int = 10,
     val snapCaption: String = "",
@@ -173,8 +177,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         }
         controller.analyzer = LiveAnalyzer(
             enabled = { settings.value.smartAi || _ui.value.aiPro || needsFaces() },
-            onResult = { scene -> live.value = scene; viewModelScope.launch { onLiveScene(scene) } },
-            realtimeFaces = { _ui.value.arMask != com.maysk.camera.camera.ArMask.NONE },
+            onResult = { scene -> live.value = scene; updateAr3d(scene); viewModelScope.launch { onLiveScene(scene) } },
+            realtimeFaces = { _ui.value.arMask != com.maysk.camera.camera.ArMask.NONE || _ui.value.ar3d != null },
             onThumb = { b -> liveThumb.value = b }
         )
     }
@@ -182,7 +186,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     /** Живой кадр для миниатюр фильтров (обновляется раз в ~2 с). */
     val liveThumb = kotlinx.coroutines.flow.MutableStateFlow<Bitmap?>(null)
 
-    private fun needsFaces() = _ui.value.arMask != com.maysk.camera.camera.ArMask.NONE || _ui.value.mode in setOf(CameraMode.PORTRAIT, CameraMode.INTERVIEW, CameraMode.CINEMATIC, CameraMode.VLOG, CameraMode.AI_AUTO)
+    private fun needsFaces() = _ui.value.arMask != com.maysk.camera.camera.ArMask.NONE || _ui.value.ar3d != null || _ui.value.mode in setOf(CameraMode.PORTRAIT, CameraMode.INTERVIEW, CameraMode.CINEMATIC, CameraMode.VLOG, CameraMode.AI_AUTO)
 
     // region привязка камеры
     fun attach(owner: LifecycleOwner, pv: PreviewView) {
@@ -248,7 +252,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 front = u.front,
                 ultraWideLens = u.ultraWide,
                 videoRes = res,
-                fps = if (u.mode == CameraMode.VIDEO_4K) 60 else s.fps,
+                fps = if (u.mode == CameraMode.VIDEO_4K && 60 in cam.value.fpsOptions) 60 else s.fps.takeIf { it in cam.value.fpsOptions } ?: 30,
                 stabilization = effectiveStabilization(),
                 bitrateMbps = s.bitrate.mbpsPer1080,
                 flashMode = u.flash.captureMode,
@@ -365,7 +369,103 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun setFilterIntensity(v: Float) { _ui.update { it.copy(filterIntensity = v) }; updateEffect() }
     fun setFrame(f: com.maysk.camera.camera.FrameSpec?) { _ui.update { it.copy(frame = f) }; updateEffect() }
-    fun setArMask(m: com.maysk.camera.camera.ArMask) = _ui.update { it.copy(arMask = m) }
+    fun setArMask(m: com.maysk.camera.camera.ArMask) {
+        _ui.update { it.copy(arMask = m, ar3d = if (m != com.maysk.camera.camera.ArMask.NONE) null else it.ar3d) }
+        if (m != com.maysk.camera.camera.ArMask.NONE) setAr3d(null)
+    }
+
+    // region 3D-маски (GLB + Face Mesh, рисуются в GL-кадр → превью, фото и видео)
+    private var ar3dModel: com.maysk.camera.ar3d.GlbModel? = null
+    private val faceTracker = com.maysk.camera.ar3d.FaceTracker()
+    private var lastMesh: com.maysk.camera.ai.FaceMeshInfo? = null
+    private var lastMeshPose: com.maysk.camera.ar3d.FacePose? = null
+    private var lastMeshView: FloatArray = FloatArray(0)
+    private var faceTris: ShortArray = ShortArray(0)
+
+    fun setAr3d(id: String?) {
+        if (id == null) {
+            _ui.update { it.copy(ar3d = null, ar3dTracking = false) }
+            ar3dModel = null; controller.processor.arFrame = null; faceTracker.reset(); lastMesh = null
+            return
+        }
+        viewModelScope.launch {
+            val model = withContext(Dispatchers.IO) {
+                runCatching { com.maysk.camera.ar3d.ArCatalog.load(ctx, id) }.onFailure { android.util.Log.e("MayskAR", "load $id", it) }.getOrNull()
+            }
+            if (model == null) { toast("Не удалось загрузить 3D-маску"); return@launch }
+            ar3dModel = model; faceTracker.reset(); lastMesh = null
+            _ui.update { it.copy(ar3d = id, arMask = com.maysk.camera.camera.ArMask.NONE) }
+            if (!cam.value.effectsActive) toast("3D-маски работают только при живом GL-эффекте — на этой камере он не запустился")
+        }
+    }
+
+    /** Вызывается из потока анализа: обновляет позу головы и отдаёт сцену GL-процессору. */
+    private fun updateAr3d(scene: com.maysk.camera.ai.LiveScene) {
+        val id = _ui.value.ar3d
+        val model = ar3dModel
+        if (id == null || model == null) { controller.processor.arFrame = null; return }
+        val pv = previewView
+        val aspect = if (pv != null && pv.height > 0) pv.width.toFloat() / pv.height else 9f / 19.5f
+        val map = com.maysk.camera.ar3d.ViewMapping(aspect, mirror = _ui.value.front)
+        val face = scene.faces.maxByOrNull { it.box.width() }
+        val mesh = face?.mesh3d
+        var meshPose: com.maysk.camera.ar3d.FacePose? = null
+        if (mesh != null && mesh !== lastMesh) {
+            meshPose = com.maysk.camera.ar3d.FaceTransform.pose(mesh.vertices, map)
+            if (meshPose != null) {
+                lastMesh = mesh; lastMeshPose = meshPose
+                lastMeshView = com.maysk.camera.ar3d.FaceTransform.meshToView(mesh.vertices, map)
+                if (faceTris.size != mesh.triangles.size * 3) {
+                    faceTris = ShortArray(mesh.triangles.size * 3).also { a ->
+                        mesh.triangles.forEachIndexed { t, tri -> for (k in 0 until 3) a[t * 3 + k] = tri.getOrElse(k) { 0 }.toShort() }
+                    }
+                }
+            }
+        }
+        val boxC = face?.let { map.boxCenter(it.box.centerX(), it.box.centerY()) }
+        val boxW = face?.let { map.scaleX(it.box.width()) } ?: 0f
+        val pose = faceTracker.update(meshPose, boxC, boxW, android.os.SystemClock.elapsedRealtime())
+        val tracking = pose != null
+        if (_ui.value.ar3dTracking != tracking) _ui.update { it.copy(ar3dTracking = tracking) }
+        if (pose == null) { controller.processor.arFrame = null; return }
+        // «невидимую голову» переносим из позы сетки в текущую сглаженную позу
+        val mp = lastMeshPose
+        val occ = if (mp != null && lastMeshView.isNotEmpty()) movedMesh(lastMeshView, mp, pose) else FloatArray(0)
+        controller.processor.arFrame = com.maysk.camera.ar3d.ArFrame(id, model, pose, occ, if (occ.isEmpty()) ShortArray(0) else faceTris, aspect)
+    }
+
+    private fun movedMesh(src: FloatArray, from: com.maysk.camera.ar3d.FacePose, to: com.maysk.camera.ar3d.FacePose): FloatArray {
+        val out = FloatArray(src.size)
+        val k = to.scale / from.scale.coerceAtLeast(1e-6f)
+        for (i in 0 until src.size / 3) {
+            val dx = src[i * 3] - from.origin[0]; val dy = src[i * 3 + 1] - from.origin[1]; val dz = src[i * 3 + 2] - from.origin[2]
+            // координаты в базисе исходной позы → в базисе новой
+            val a = dx * from.right[0] + dy * from.right[1] + dz * from.right[2]
+            val b = dx * from.up[0] + dy * from.up[1] + dz * from.up[2]
+            val c = dx * from.forward[0] + dy * from.forward[1] + dz * from.forward[2]
+            for (j in 0 until 3) out[i * 3 + j] = to.origin[j] + k * (a * to.right[j] + b * to.up[j] + c * to.forward[j])
+        }
+        return out
+    }
+
+    /** Фото с 3D-маской: берётся тот же обработанный GL-кадр, что видно в превью. */
+    private suspend fun takeArPhoto() {
+        _ui.update { it.copy(busy = "Снимок с 3D-маской…") }
+        playShutter()
+        val hadMask = controller.processor.arFrame != null
+        val bmp = kotlinx.coroutines.withTimeoutOrNull(2000) {
+            kotlinx.coroutines.suspendCancellableCoroutine<Bitmap?> { cont ->
+                controller.processor.requestSnapshot { b -> if (cont.isActive) cont.resumeWith(Result.success(b)) }
+            }
+        }
+        if (bmp == null) { _ui.update { it.copy(busy = null, message = "Не удалось получить кадр с маской") }; return }
+        val uri = withContext(Dispatchers.IO) { MediaStoreRepo.saveJpeg(ctx, bmp, 95, name = MediaStoreRepo.newName("AR")) }
+        _ui.update {
+            it.copy(busy = null, lastUri = uri ?: it.lastUri, lastIsVideo = false,
+                message = if (uri == null) "Фото не сохранено" else if (hadMask) "Фото с 3D-маской сохранено" else "Лицо не найдено — снимок без маски")
+        }
+    }
+    // endregion
     fun setSnapMode(enabled: Boolean) = _ui.update { it.copy(snapMode = enabled) }
     fun setSnapDuration(seconds: Int) = _ui.update { it.copy(snapSeconds = if (seconds in setOf(3, 5, 10, 30)) seconds else 10) }
     fun setSnapCaption(value: String) = _ui.update { it.copy(snapCaption = value.take(80)) }
@@ -612,6 +712,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun takePhoto() {
+        if (_ui.value.ar3d != null && cam.value.effectsActive) { takeArPhoto(); return }
         val u = _ui.value
         val s = settings.value
         val c = cam.value

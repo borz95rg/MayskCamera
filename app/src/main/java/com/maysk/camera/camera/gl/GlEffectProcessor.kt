@@ -171,8 +171,10 @@ class GlEffectProcessor : SurfaceProcessor {
             display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
             val version = IntArray(2)
             check(EGL14.eglInitialize(display, version, 0, version, 1)) { "eglInitialize failed" }
-            val attribs = intArrayOf(
+            // буфер глубины нужен 3D-маскам (лицо закрывает дальние части маски); без него — запасной вариант
+            fun attribs(depth: Boolean) = intArrayOf(
                 EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8, EGL14.EGL_ALPHA_SIZE, 8,
+                EGL14.EGL_DEPTH_SIZE, if (depth) 16 else 0,
                 EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
                 EGL_RECORDABLE_ANDROID, 1,
                 EGL14.EGL_SURFACE_TYPE, EGL14.EGL_WINDOW_BIT or EGL14.EGL_PBUFFER_BIT,
@@ -180,7 +182,8 @@ class GlEffectProcessor : SurfaceProcessor {
             )
             val configs = arrayOfNulls<EGLConfig>(1)
             val num = IntArray(1)
-            check(EGL14.eglChooseConfig(display, attribs, 0, configs, 0, 1, num, 0) && num[0] > 0) { "no EGL config" }
+            hasDepth = EGL14.eglChooseConfig(display, attribs(true), 0, configs, 0, 1, num, 0) && num[0] > 0
+            if (!hasDepth) check(EGL14.eglChooseConfig(display, attribs(false), 0, configs, 0, 1, num, 0) && num[0] > 0) { "no EGL config" }
             config = configs[0]
             context = EGL14.eglCreateContext(
                 display, config, EGL14.EGL_NO_CONTEXT,
@@ -325,8 +328,12 @@ class GlEffectProcessor : SurfaceProcessor {
         var ovReady = false
         val spec = p.frame
         val previewOut = outputs.keys.firstOrNull { (it.targets and CameraEffect.PREVIEW) != 0 }
-        if (spec != null && previewOut != null) {
+        var previewReady = false
+        if (previewOut != null && (spec != null || arFrame != null || snapshotRequest != null)) {
             previewOut.updateTransformMatrix(previewM, texMatrix)
+            previewReady = true
+        }
+        if (spec != null && previewOut != null) {
             if (android.opengl.Matrix.invertM(previewInv, 0, previewM, 0)) {
                 EGL14.eglMakeCurrent(display, pbuffer, pbuffer, context)
                 ovReady = ensureOverlay(spec, previewOut.size.width, previewOut.size.height)
@@ -350,61 +357,143 @@ class GlEffectProcessor : SurfaceProcessor {
                 finalM
             } else outMatrix
             val size = out.size
-            GLES20.glViewport(0, 0, size.width, size.height)
-            GLES20.glUseProgram(if (useProgram2D) program2D else program)
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE2)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, if (ovOn) ovTex else lutTex)
-            GLES20.glUniform1i(u("uOv"), 2)
-            GLES20.glUniform1f(u("uOvOn"), if (ovOn) 1f else 0f)
-            GLES20.glUniformMatrix4fv(u("uOvMatrix"), 1, false, if (ovOn) ovM else identity, 0)
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-            if (useProgram2D) {
-                GLES20.glActiveTexture(GLES20.GL_TEXTURE3)
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, cleanTex)
-                GLES20.glUniform1i(u("uTex"), 3)
-                GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-            } else GLES20.glUniform1i(u("uTex"), 0)
-            GLES20.glUniformMatrix4fv(u("uTexMatrix"), 1, false, matrixForDraw, 0)
-            GLES20.glUniform2f(u("uTexel"), 1f / inputSize.width, 1f / inputSize.height)
-            GLES20.glUniformMatrix4fv(u("uColor"), 1, false, colorMat, 0)
-            GLES20.glUniform4fv(u("uOffset"), 1, colorOffset, 0)
-            GLES20.glUniform1f(u("uBeauty"), p.beauty)
-            GLES20.glUniform1f(u("uDenoise"), p.denoise)
-            GLES20.glUniform1f(u("uFaceLight"), p.faceLight)
-            GLES20.glUniform1f(u("uSharp"), p.sharpen)
-            GLES20.glUniform1f(u("uGain"), p.gain)
-            GLES20.glUniform1f(u("uLift"), p.lift)
-            GLES20.glUniform1f(u("uVignette"), p.vignette)
-            GLES20.glUniform1f(u("uFade"), p.fade)
-            GLES20.glUniform1f(u("uLog"), p.log)
-            GLES20.glUniform1f(u("uTime"), time)
-            GLES20.glUniform1f(u("uAspect"), size.width.toFloat() / size.height.toFloat())
-            GLES20.glUniform1i(u("uEffect"), p.effect)
-            GLES20.glUniform1f(u("uGrain"), p.grain)
-            GLES20.glUniform1f(u("uLeak"), p.leak)
-            GLES20.glUniform1f(u("uSkinTone"), p.skinTone)
-            GLES20.glUniform1f(u("uWarmSat"), p.warmSat)
-            GLES20.glUniform4fv(u("uFocus"), 1, p.focus, 0)
-            val lutOn = p.lut != null && p.lutMix > 0.01f
-            ensureLut(p.lut)
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lutTex)
-            GLES20.glUniform1i(u("uLut"), 1)
-            GLES20.glUniform1f(u("uLutMix"), if (lutOn) p.lutMix else 0f)
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-
-            val prog = if (useProgram2D) program2D else program
-            val ap = if (useProgram2D) GLES20.glGetAttribLocation(prog, "aPosition") else aPosition
-            val at = if (useProgram2D) GLES20.glGetAttribLocation(prog, "aTexCoord") else aTexCoord
-            GLES20.glEnableVertexAttribArray(ap)
-            GLES20.glVertexAttribPointer(ap, 2, GLES20.GL_FLOAT, false, 0, vertices)
-            GLES20.glEnableVertexAttribArray(at)
-            GLES20.glVertexAttribPointer(at, 2, GLES20.GL_FLOAT, false, 0, texCoords)
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+            drawQuad(matrixForDraw, size.width, size.height, ovOn, p, time, cleanTex)
+            // 3D-маска — в тот же буфер (превью и запись видео совпадают)
+            arFrame?.let { af ->
+                if (previewReady) {
+                    android.opengl.Matrix.invertM(arInv, 0, matrixForDraw, 0)
+                    android.opengl.Matrix.multiplyMM(arPrevToOut, 0, arInv, 0, previewM, 0)
+                    ar.draw(af, arPrevToOut, hasDepth)
+                }
+            }
 
             EGLExt.eglPresentationTimeANDROID(display, egl, st.timestamp)
             EGL14.eglSwapBuffers(display, egl)
         }
+
+        // Снимок «как в превью»: тот же проход + 3D-маска в отдельный буфер → Bitmap
+        snapshotRequest?.let { cb ->
+            snapshotRequest = null
+            val res = runCatching {
+                if (previewOut == null || !previewReady) null
+                else {
+                    EGL14.eglMakeCurrent(display, pbuffer, pbuffer, context)
+                    val sw = previewOut.size.width; val sh = previewOut.size.height
+                    val scale = (snapshotMaxSide.toFloat() / maxOf(sw, sh)).coerceAtMost(2f).coerceAtLeast(0.25f)
+                    val w = (sw * scale).toInt() / 2 * 2; val h = (sh * scale).toInt() / 2 * 2
+                    renderSnapshot(w, h, p, time, cleanTex, ovReady, stabilize)
+                }
+            }.onFailure { Log.e("MayskGL", "snapshot failed", it) }.getOrNull()
+            cb(res)
+        }
+    }
+
+    // region снимок кадра с эффектами (AR-фото)
+    @Volatile private var snapshotRequest: ((android.graphics.Bitmap?) -> Unit)? = null
+    @Volatile var snapshotMaxSide = 2160
+
+    /** Запросить следующий обработанный кадр (с фильтром, рамкой и 3D-маской) как Bitmap. */
+    fun requestSnapshot(cb: (android.graphics.Bitmap?) -> Unit) { snapshotRequest = cb }
+
+    private fun renderSnapshot(w: Int, h: Int, p: EffectParams, time: Float, cleanTex: Int, ovReady: Boolean, stabilize: Boolean): android.graphics.Bitmap {
+        val fb = IntArray(1); val tex = IntArray(1); val rb = IntArray(1)
+        GLES20.glGenFramebuffers(1, fb, 0); GLES20.glGenTextures(1, tex, 0); GLES20.glGenRenderbuffers(1, rb, 0)
+        try {
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex[0])
+            GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, w, h, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+            GLES20.glBindRenderbuffer(GLES20.GL_RENDERBUFFER, rb[0])
+            GLES20.glRenderbufferStorage(GLES20.GL_RENDERBUFFER, GLES20.GL_DEPTH_COMPONENT16, w, h)
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fb[0])
+            GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, tex[0], 0)
+            GLES20.glFramebufferRenderbuffer(GLES20.GL_FRAMEBUFFER, GLES20.GL_DEPTH_ATTACHMENT, GLES20.GL_RENDERBUFFER, rb[0])
+            check(GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) == GLES20.GL_FRAMEBUFFER_COMPLETE) { "snapshot FBO" }
+            val m = if (stabilize) FloatArray(16).also { android.opengl.Matrix.multiplyMM(it, 0, tmpB, 0, previewM, 0) } else previewM
+            if (ovReady) android.opengl.Matrix.multiplyMM(ovM, 0, previewInv, 0, previewM, 0)
+            drawQuad(m, w, h, ovReady, p, time, cleanTex)
+            arFrame?.let { af ->
+                android.opengl.Matrix.invertM(arInv, 0, m, 0)
+                android.opengl.Matrix.multiplyMM(arPrevToOut, 0, arInv, 0, previewM, 0)
+                ar.draw(af, arPrevToOut, true)
+            }
+            val buf = ByteBuffer.allocateDirect(w * h * 4).order(ByteOrder.nativeOrder())
+            GLES20.glReadPixels(0, 0, w, h, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buf)
+            buf.position(0)
+            val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+            bmp.copyPixelsFromBuffer(buf)
+            // OpenGL читает снизу вверх — переворачиваем
+            val flip = android.graphics.Matrix().apply { postScale(1f, -1f, w / 2f, h / 2f) }
+            return android.graphics.Bitmap.createBitmap(bmp, 0, 0, w, h, flip, true)
+        } finally {
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+            GLES20.glDeleteFramebuffers(1, fb, 0); GLES20.glDeleteTextures(1, tex, 0); GLES20.glDeleteRenderbuffers(1, rb, 0)
+        }
+    }
+    // endregion
+
+    // region 3D-маски
+    /** Текущая AR-сцена (модель + поза лица); null — 3D-маска выключена. */
+    @Volatile var arFrame: com.maysk.camera.ar3d.ArFrame? = null
+    private val ar = com.maysk.camera.ar3d.ArRenderer()
+    private var hasDepth = false
+    private val arPrevToOut = FloatArray(16)
+    private val arInv = FloatArray(16)
+    // endregion
+
+
+    /** Основной проход: кадр камеры + фильтр + эффекты + рамка → текущий буфер (экран, видео или снимок). */
+    private fun drawQuad(matrixForDraw: FloatArray, w: Int, h: Int, ovOn: Boolean, p: EffectParams, time: Float, cleanTex: Int) {
+        GLES20.glViewport(0, 0, w, h)
+        GLES20.glUseProgram(if (useProgram2D) program2D else program)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE2)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, if (ovOn) ovTex else lutTex)
+        GLES20.glUniform1i(u("uOv"), 2)
+        GLES20.glUniform1f(u("uOvOn"), if (ovOn) 1f else 0f)
+        GLES20.glUniformMatrix4fv(u("uOvMatrix"), 1, false, if (ovOn) ovM else identity, 0)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        if (useProgram2D) {
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE3)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, cleanTex)
+            GLES20.glUniform1i(u("uTex"), 3)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        } else GLES20.glUniform1i(u("uTex"), 0)
+        GLES20.glUniformMatrix4fv(u("uTexMatrix"), 1, false, matrixForDraw, 0)
+        GLES20.glUniform2f(u("uTexel"), 1f / inputSize.width, 1f / inputSize.height)
+        GLES20.glUniformMatrix4fv(u("uColor"), 1, false, colorMat, 0)
+        GLES20.glUniform4fv(u("uOffset"), 1, colorOffset, 0)
+        GLES20.glUniform1f(u("uBeauty"), p.beauty)
+        GLES20.glUniform1f(u("uDenoise"), p.denoise)
+        GLES20.glUniform1f(u("uFaceLight"), p.faceLight)
+        GLES20.glUniform1f(u("uSharp"), p.sharpen)
+        GLES20.glUniform1f(u("uGain"), p.gain)
+        GLES20.glUniform1f(u("uLift"), p.lift)
+        GLES20.glUniform1f(u("uVignette"), p.vignette)
+        GLES20.glUniform1f(u("uFade"), p.fade)
+        GLES20.glUniform1f(u("uLog"), p.log)
+        GLES20.glUniform1f(u("uTime"), time)
+        GLES20.glUniform1f(u("uAspect"), w.toFloat() / h.toFloat())
+        GLES20.glUniform1i(u("uEffect"), p.effect)
+        GLES20.glUniform1f(u("uGrain"), p.grain)
+        GLES20.glUniform1f(u("uLeak"), p.leak)
+        GLES20.glUniform1f(u("uSkinTone"), p.skinTone)
+        GLES20.glUniform1f(u("uWarmSat"), p.warmSat)
+        GLES20.glUniform4fv(u("uFocus"), 1, p.focus, 0)
+        val lutOn = p.lut != null && p.lutMix > 0.01f
+        ensureLut(p.lut)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lutTex)
+        GLES20.glUniform1i(u("uLut"), 1)
+        GLES20.glUniform1f(u("uLutMix"), if (lutOn) p.lutMix else 0f)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+
+        val prog = if (useProgram2D) program2D else program
+        val ap = if (useProgram2D) GLES20.glGetAttribLocation(prog, "aPosition") else aPosition
+        val at = if (useProgram2D) GLES20.glGetAttribLocation(prog, "aTexCoord") else aTexCoord
+        GLES20.glEnableVertexAttribArray(ap)
+        GLES20.glVertexAttribPointer(ap, 2, GLES20.GL_FLOAT, false, 0, vertices)
+        GLES20.glEnableVertexAttribArray(at)
+        GLES20.glVertexAttribPointer(at, 2, GLES20.GL_FLOAT, false, 0, texCoords)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
     }
 
     private fun u(name: String): Int = (if (useProgram2D) uniforms2D else uniforms)[name] ?: -1
@@ -476,6 +565,8 @@ class GlEffectProcessor : SurfaceProcessor {
 
     fun release() {
         handler.post {
+            if (display != EGL14.EGL_NO_DISPLAY) runCatching { EGL14.eglMakeCurrent(display, pbuffer, pbuffer, context); ar.release() }
+            snapshotRequest?.invoke(null); snapshotRequest = null
             outputs.forEach { (o, e) -> EGL14.eglDestroySurface(display, e); o.close() }
             outputs.clear()
             surfaceTexture?.release()

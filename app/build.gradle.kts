@@ -58,6 +58,9 @@ android {
         abortOnError = false
         checkReleaseBuilds = false
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     }
@@ -100,10 +103,10 @@ dependencies {
     implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
     implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0-beta1")
 
-    // Filament runtime + glTF 2.0 asset loader. Renderer integration follows in stage 2.
-    implementation("com.google.android.filament:filament-android:1.56.0")
-    implementation("com.google.android.filament:gltfio-android:1.56.0")
-    implementation("com.google.android.filament:filament-utils-android:1.56.0")
+    // 3D-маски: собственный рендер GLB на OpenGL ES 2 внутри GlEffectProcessor (com.maysk.camera.ar3d).
+    // Filament удалён: его отдельный рендер-контекст не попадает в кадр, который CameraX пишет в MP4.
+
+    testImplementation("junit:junit:4.13.2")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")

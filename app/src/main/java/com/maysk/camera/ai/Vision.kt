@@ -33,7 +33,9 @@ data class FaceMeshInfo(
     val vertices: List<FloatArray>,
     /** Triangle vertex indices supplied by ML Kit. */
     val triangles: List<IntArray>,
-)
+) {
+    companion object { const val POINT_COUNT = 468 }
+}
 
 data class FaceInfo(
     val box: RectF,
@@ -128,31 +130,28 @@ object Vision {
 
             val output = ArrayList<FaceMeshInfo>(detectedMeshes.size)
             for (mesh in detectedMeshes) {
+                // API ML Kit face-mesh 16.0.0-beta: FaceMesh.getAllPoints(): List<FaceMeshPoint>,
+                // FaceMeshPoint.getIndex(): Int (0..467), getPosition(): PointF3D,
+                // FaceMesh.getAllTriangles(): List<Triangle<FaceMeshPoint>>, Triangle.getAllPoints(): List<T>.
                 val points: List<com.google.mlkit.vision.facemesh.FaceMeshPoint> = mesh.allPoints
-                val vertices = ArrayList<FloatArray>(points.size)
-
+                if (points.isEmpty()) continue
+                // вершины раскладываем по стабильному индексу точки, а не по порядку в списке
+                val vertices = Array(FaceMeshInfo.POINT_COUNT) { FloatArray(3) }
                 for (point in points) {
-                    val position = point.position
-                    vertices.add(
-                        floatArrayOf(
-                            (position.x / uprightW).coerceIn(-1f, 2f),
-                            (position.y / uprightH).coerceIn(-1f, 2f),
-                            position.z / uprightW.toFloat()
-                        )
-                    )
+                    val idx: Int = point.index
+                    if (idx < 0 || idx >= FaceMeshInfo.POINT_COUNT) continue
+                    val position: com.google.mlkit.vision.common.PointF3D = point.position
+                    vertices[idx][0] = position.x / uprightW
+                    vertices[idx][1] = position.y / uprightH
+                    vertices[idx][2] = position.z / uprightW
                 }
-
-                val triangles = ArrayList<IntArray>()
+                val triangles = ArrayList<IntArray>(mesh.allTriangles.size)
                 for (triangle in mesh.allTriangles) {
-                    val connectedPoints = triangle.allPoints()
-                    val indices = IntArray(connectedPoints.size)
-                    for (i in connectedPoints.indices) {
-                        indices[i] = points.indexOf(connectedPoints[i])
-                    }
-                    triangles.add(indices)
+                    val corners: List<com.google.mlkit.vision.facemesh.FaceMeshPoint> = triangle.allPoints
+                    if (corners.size != 3) continue
+                    triangles.add(intArrayOf(corners[0].index, corners[1].index, corners[2].index))
                 }
-
-                output.add(FaceMeshInfo(vertices, triangles))
+                output.add(FaceMeshInfo(vertices.toList(), triangles))
             }
             output
         } catch (_: Exception) {
