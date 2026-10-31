@@ -212,12 +212,17 @@ class ArRenderer {
         GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE7)
         GLES20.glUniform1i(suTex, 7)
+        // время для дыхания / моргания (секунды)
+        val tSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
         for (s in f.sprites) {
             if (s.alpha <= 0.01f) continue
-            val hw = s.width / 2; val h = s.width * s.aspect
-            val cy = if (s.bottomAligned) s.at[1] + h / 2 else s.at[1]
+            val (sx, sy, aMul) = FaceAnim.spriteAnim(s.key, tSec)
+            val lift = FaceAnim.topLift(s.key, tSec)
+            val hw = s.width * sx / 2
+            val h = s.width * s.aspect * sy
+            val cy = (if (s.bottomAligned) s.at[1] + h / 2 else s.at[1]) + lift
             val x = s.at[0]; val z = s.at.getOrElse(2) { 0f }
-            // 4 вершины: позиция в лицевых единицах (xyz) + текстурные координаты (uv)
+            // 4 вершины: позиция в лицевых единицах (xyz) + UV
             val v = floatArrayOf(
                 x - hw, cy + h / 2, z, 0f, 0f,
                 x + hw, cy + h / 2, z, 1f, 0f,
@@ -226,7 +231,7 @@ class ArRenderer {
             )
             val buf = ByteBuffer.allocateDirect(v.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(v); position(0) }
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture(s))
-            GLES20.glUniform1f(suAlpha, s.alpha)
+            GLES20.glUniform1f(suAlpha, s.alpha * aMul)
             buf.position(0)
             GLES20.glEnableVertexAttribArray(sPos)
             GLES20.glVertexAttribPointer(sPos, 3, GLES20.GL_FLOAT, false, 20, buf)

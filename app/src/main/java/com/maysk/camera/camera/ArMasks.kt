@@ -102,6 +102,10 @@ object ArMasks {
         Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; this.style = style; strokeWidth = stroke; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
 
     private fun drawLocal(c: Canvas, m: ArMask, f: FacePx, t: Float) {
+        // дыхание: лёгкая пульсация всего рисунка маски
+        val breath = com.maysk.camera.ar3d.FaceAnim.breathScale(t)
+        c.scale(breath, breath)
+
         val d = f.d
         val top = -d * 1.25f            // макушка
         when (m) {

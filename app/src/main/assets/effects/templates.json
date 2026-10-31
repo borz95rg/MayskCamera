@@ -10,23 +10,23 @@
      "png": "effects/face/cat_0.png",
      "at": [
       0,
-      1.12,
-      -0.25
+      1.05,
+      -0.2
      ],
-     "w": 1.6724,
+     "w": 1.48,
      "align": "bottom",
-     "aspect": 0.52134
+     "aspect": 0.53333
     },
     {
      "png": "effects/face/cat_1.png",
      "at": [
       0,
-      -0.62,
-      0.42
+      -0.55,
+      0.36
      ],
-     "w": 2.0599,
+     "w": 1.75,
      "align": "center",
-     "aspect": 0.20667
+     "aspect": 0.26087
     }
    ]
   },
@@ -40,23 +40,23 @@
      "png": "effects/face/puppy_0.png",
      "at": [
       0,
-      1.05,
-      -0.3
+      0.98,
+      -0.26
      ],
-     "w": 1.8582,
+     "w": 1.65,
      "align": "bottom",
-     "aspect": 0.39927
+     "aspect": 0.46667
     },
     {
      "png": "effects/face/puppy_1.png",
      "at": [
       0,
-      -0.62,
-      0.45
+      -0.55,
+      0.4
      ],
-     "w": 0.6973,
+     "w": 0.62,
      "align": "center",
-     "aspect": 0.82558
+     "aspect": 0.86667
     }
    ]
   },
@@ -71,22 +71,22 @@
      "at": [
       0,
       1.12,
-      -0.3
+      -0.26
      ],
-     "w": 1.3067,
+     "w": 1.18,
      "align": "bottom",
-     "aspect": 0.82993
+     "aspect": 0.76316
     },
     {
      "png": "effects/face/bunny_1.png",
      "at": [
       0,
-      -0.57,
-      0.47
+      -0.52,
+      0.42
      ],
      "w": 0.26,
      "align": "center",
-     "aspect": 0.91667
+     "aspect": 0.88889
     }
    ]
   },
@@ -100,23 +100,23 @@
      "png": "effects/face/fox_0.png",
      "at": [
       0,
-      1.12,
-      -0.25
+      1.05,
+      -0.2
      ],
-     "w": 1.7227,
+     "w": 1.48,
      "align": "bottom",
-     "aspect": 0.52522
+     "aspect": 0.51163
     },
     {
      "png": "effects/face/fox_1.png",
      "at": [
       0,
-      -0.66,
-      0.45
+      -0.6,
+      0.4
      ],
-     "w": 0.7327,
+     "w": 0.72,
      "align": "center",
-     "aspect": 0.79487
+     "aspect": 0.78947
     }
    ]
   },
@@ -130,12 +130,12 @@
      "png": "effects/face/panda_0.png",
      "at": [
       0,
-      -0.05,
-      0.25
+      0.0,
+      0.2
      ],
-     "w": 2.4127,
+     "w": 2.05,
      "align": "center",
-     "aspect": 1.00281
+     "aspect": 1.0
     }
    ]
   },
@@ -149,12 +149,12 @@
      "png": "effects/face/crown_0.png",
      "at": [
       0,
-      1.02,
-      -0.3
+      1.0,
+      -0.28
      ],
-     "w": 1.6394,
+     "w": 1.55,
      "align": "bottom",
-     "aspect": 0.63864
+     "aspect": 0.45946
     }
    ]
   },
@@ -168,12 +168,12 @@
      "png": "effects/face/devil_0.png",
      "at": [
       0,
-      1.0,
-      -0.2
+      1.05,
+      -0.25
      ],
-     "w": 1.5486,
+     "w": 1.45,
      "align": "bottom",
-     "aspect": 0.4244
+     "aspect": 0.52778
     }
    ]
   },
@@ -187,12 +187,12 @@
      "png": "effects/face/glasses_0.png",
      "at": [
       0,
-      -0.02,
-      0.3
+      0.05,
+      0.18
      ],
-     "w": 1.5339,
+     "w": 1.65,
      "align": "center",
-     "aspect": 0.32346
+     "aspect": 0.40541
     }
    ]
   },
@@ -206,12 +206,12 @@
      "png": "effects/face/halo_0.png",
      "at": [
       0,
-      1.6,
+      1.15,
       -0.35
      ],
-     "w": 1.4569,
+     "w": 1.8,
      "align": "center",
-     "aspect": 0.31346
+     "aspect": 0.34375
     }
    ]
   },
@@ -230,7 +230,7 @@
      ],
      "w": 1.7046,
      "align": "bottom",
-     "aspect": 0.44501
+     "aspect": 0.39474
     }
    ]
   },
@@ -249,7 +249,7 @@
      ],
      "w": 1.6068,
      "align": "bottom",
-     "aspect": 0.55125
+     "aspect": 0.52778
     }
    ]
   },
@@ -268,7 +268,7 @@
      ],
      "w": 0.5382,
      "align": "center",
-     "aspect": 1.1568
+     "aspect": 0.65625
     }
    ]
   },
@@ -287,7 +287,7 @@
      ],
      "w": 1.858,
      "align": "center",
-     "aspect": 0.45278
+     "aspect": 0.31579
     }
    ]
   },
@@ -306,7 +306,7 @@
      ],
      "w": 0.9135,
      "align": "center",
-     "aspect": 0.91606
+     "aspect": 0.72222
     }
    ]
   },
@@ -325,7 +325,7 @@
      ],
      "w": 0.8627,
      "align": "center",
-     "aspect": 0.70455
+     "aspect": 0.65625
     }
    ]
   },
@@ -344,7 +344,7 @@
      ],
      "w": 2.2276,
      "align": "center",
-     "aspect": 0.64916
+     "aspect": 1.0
     }
    ]
   },
@@ -363,7 +363,7 @@
      ],
      "w": 0.8829,
      "align": "center",
-     "aspect": 0.33495
+     "aspect": 0.38462
     }
    ]
   },
@@ -377,12 +377,12 @@
      "png": "effects/face/blush_0.png",
      "at": [
       0,
-      -0.4,
-      0.3
+      -0.22,
+      0.28
      ],
-     "w": 1.3969,
+     "w": 1.45,
      "align": "center",
-     "aspect": 0.27746
+     "aspect": 0.30556
     }
    ]
   },
@@ -396,12 +396,12 @@
      "png": "effects/face/liner_0.png",
      "at": [
       0,
-      0.04,
-      0.26
+      0.1,
+      0.12
      ],
-     "w": 1.1632,
+     "w": 1.48,
      "align": "center",
-     "aspect": 0.16692
+     "aspect": 0.20513
     }
    ]
   },
@@ -420,7 +420,7 @@
      ],
      "w": 0.6335,
      "align": "center",
-     "aspect": 0.5597
+     "aspect": 0.38235
     }
    ]
   },
@@ -434,12 +434,12 @@
      "png": "effects/face/hearts_cheeks_0.png",
      "at": [
       0,
-      -0.4,
+      -0.32,
       0.32
      ],
-     "w": 1.3051,
+     "w": 1.35,
      "align": "center",
-     "aspect": 0.31879
+     "aspect": 0.35294
     }
    ]
   }

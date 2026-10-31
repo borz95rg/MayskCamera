@@ -530,10 +530,17 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         val tracking = pose != null
         if (_ui.value.ar3dTracking != tracking) _ui.update { it.copy(ar3dTracking = tracking) }
         if (pose == null) { controller.processor.arFrame = null; return }
+        // дыхание: лёгкая пульсация масштаба 3D-маски и всей позы
+        val tSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
+        val breath = com.maysk.camera.ar3d.FaceAnim.breathScale(tSec)
+        val livePose = com.maysk.camera.ar3d.FacePose(
+            pose.origin, pose.right, pose.up, pose.forward,
+            pose.scale * breath, pose.mouthOpen,
+        )
         // «невидимую голову» переносим из позы сетки в текущую сглаженную позу
         val mp = lastMeshPose
-        val occ = if (mp != null && lastMeshView.isNotEmpty()) movedMesh(lastMeshView, mp, pose) else FloatArray(0)
-        controller.processor.arFrame = com.maysk.camera.ar3d.ArFrame(id, model, pose, occ, if (occ.isEmpty()) ShortArray(0) else faceTris, aspect, sprites)
+        val occ = if (mp != null && lastMeshView.isNotEmpty()) movedMesh(lastMeshView, mp, livePose) else FloatArray(0)
+        controller.processor.arFrame = com.maysk.camera.ar3d.ArFrame(id, model, livePose, occ, if (occ.isEmpty()) ShortArray(0) else faceTris, aspect, sprites)
     }
 
     private fun movedMesh(src: FloatArray, from: com.maysk.camera.ar3d.FacePose, to: com.maysk.camera.ar3d.FacePose): FloatArray {
