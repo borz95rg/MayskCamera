@@ -86,13 +86,28 @@ object ImageOps {
         return out
     }
 
-    /** Быстрое гауссоподобное размытие через уменьшение/увеличение. */
+    /**
+     * Быстрое гладкое размытие: ступенчатое уменьшение в 2 раза и такое же ступенчатое
+     * увеличение — без «квадратиков», которые даёт резкое масштабирование.
+     */
     fun fastBlur(src: Bitmap, factor: Int): Bitmap {
-        val f = max(2, factor)
-        val small = Bitmap.createScaledBitmap(src, max(1, src.width / f), max(1, src.height / f), true)
-        val small2 = Bitmap.createScaledBitmap(small, max(1, small.width / 2), max(1, small.height / 2), true)
-        val back = Bitmap.createScaledBitmap(small2, small.width, small.height, true)
-        return Bitmap.createScaledBitmap(back, src.width, src.height, true)
+        var f = max(2, factor)
+        var cur = src
+        val sizes = ArrayList<Pair<Int, Int>>()
+        while (f >= 2 && cur.width > 8 && cur.height > 8) {
+            sizes += cur.width to cur.height
+            cur = Bitmap.createScaledBitmap(cur, max(1, cur.width / 2), max(1, cur.height / 2), true)
+            f /= 2
+        }
+        // лёгкое дополнительное сглаживание на маленьком размере
+        val w = cur.width; val h = cur.height
+        val px = IntArray(w * h).also { cur.getPixels(it, 0, w, 0, 0, w, h) }
+        cur = Bitmap.createBitmap(boxBlur(px, w, h, 1), w, h, Bitmap.Config.ARGB_8888)
+        for (i in sizes.indices.reversed()) {
+            val (tw, th) = sizes[i]
+            cur = Bitmap.createScaledBitmap(cur, tw, th, true)
+        }
+        return cur
     }
 
     /** Box-blur по пикселям (сепарабельный, O(n)). */
@@ -624,25 +639,42 @@ object ImageOps {
         return sharpen(out, 0.7f, 1)
     }
 
-    /** Размытие фона по маске человека (0..1, размер маски произвольный). */
+    /**
+     * Проверка маски человека: размываем фон только если человек действительно в кадре
+     * и занимает разумную часть (5–85%). Иначе (документ, пейзаж, ложное срабатывание) — не трогаем.
+     */
+    fun personMaskUsable(mask: FloatArray): Boolean {
+        if (mask.isEmpty()) return false
+        var fg = 0
+        for (v in mask) if (v > 0.6f) fg++
+        val part = fg.toFloat() / mask.size
+        return part in 0.05f..0.85f
+    }
+
+    /** Размытие фона по маске человека (0..1). strength 0..1 — мягкое, как у оптики. */
     fun blurBackground(src: Bitmap, mask: FloatArray, mw: Int, mh: Int, strength: Float): Bitmap {
+        if (!personMaskUsable(mask)) return src
         val w = src.width; val h = src.height
-        val blurred = pixels(fastBlur(src, (8 + strength * 16).roundToInt()))
+        // сглаживаем края маски, чтобы не было резкой «вырезки»
+        val maskBmp = Bitmap.createBitmap(mw, mh, Bitmap.Config.ARGB_8888)
+        val mp = IntArray(mw * mh) { i ->
+            val v = ((mask[i] - 0.35f) / 0.4f).coerceIn(0f, 1f)
+            val a = (v * 255).toInt()
+            (0xFF shl 24) or (a shl 16) or (a shl 8) or a
+        }
+        maskBmp.setPixels(mp, 0, mw, 0, 0, mw, mh)
+        val soft = pixels(Bitmap.createScaledBitmap(fastBlur(maskBmp, 3), w, h, true))
+        val blurred = pixels(fastBlur(src, (4 + strength.coerceIn(0f, 1f) * 8).roundToInt()))
         val px = pixels(src)
-        for (y in 0 until h) {
-            val my = (y * mh / h).coerceIn(0, mh - 1)
-            for (x in 0 until w) {
-                val mx = (x * mw / w).coerceIn(0, mw - 1)
-                val fg = mask[my * mw + mx].coerceIn(0f, 1f)
-                val a = 1f - fg
-                if (a < 0.02f) continue
-                val i = y * w + x
-                val c = px[i]; val b = blurred[i]
-                val nr = ((c shr 16) and 255) * fg + ((b shr 16) and 255) * a
-                val ng = ((c shr 8) and 255) * fg + ((b shr 8) and 255) * a
-                val nb = (c and 255) * fg + (b and 255) * a
-                px[i] = (0xFF shl 24) or (clamp255(nr) shl 16) or (clamp255(ng) shl 8) or clamp255(nb)
-            }
+        for (i in px.indices) {
+            val fg = ((soft[i] shr 8) and 255) / 255f
+            val a = (1f - fg) * strength.coerceIn(0.3f, 1f)
+            if (a < 0.02f) continue
+            val c = px[i]; val bb = blurred[i]
+            val nr = ((c shr 16) and 255) * (1 - a) + ((bb shr 16) and 255) * a
+            val ng = ((c shr 8) and 255) * (1 - a) + ((bb shr 8) and 255) * a
+            val nb = (c and 255) * (1 - a) + (bb and 255) * a
+            px[i] = (0xFF shl 24) or (clamp255(nr) shl 16) or (clamp255(ng) shl 8) or clamp255(nb)
         }
         return fromPixels(px, w, h)
     }

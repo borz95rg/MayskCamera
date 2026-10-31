@@ -146,7 +146,8 @@ object PhotoPipeline {
     suspend fun process(input: Bitmap, spec: PhotoSpec): Bitmap {
         var out = input
         val needFaces = spec.beautySkin > 0f || spec.beautyEyes > 0f || spec.beautyFace > 0f
-        val faces = if (needFaces || spec.aiAuto) Vision.faces(ImageOps.limitSize(out, 1600)) else emptyList()
+        val wantsBlur = spec.portraitBlur || spec.effect == Effect.BG_BLUR
+        val faces = if (needFaces || spec.aiAuto || wantsBlur) Vision.faces(ImageOps.limitSize(out, 1600)) else emptyList()
 
         if (spec.undistort > 0f) out = ImageOps.undistort(out, spec.undistort)
         if (spec.aiAuto) {
@@ -155,8 +156,9 @@ object PhotoPipeline {
             if (needFaces) plan = plan.copy(skin = 0f, eyes = 0f, faceLight = minOf(plan.faceLight, 0.2f))
             out = AiEnhancer.apply(out, plan, withFilter = spec.filterId == "original")
         }
-        if (spec.portraitBlur) {
-            Vision.personMask(ImageOps.limitSize(out, 512))?.let { (m, w, h) -> out = ImageOps.blurBackground(out, m, w, h, 0.8f) }
+        // Портретное размытие — только если в кадре есть лицо (документы и предметы не размываются)
+        if (spec.portraitBlur && faces.isNotEmpty()) {
+            Vision.personMask(ImageOps.limitSize(out, 512))?.let { (m, w, h) -> out = ImageOps.blurBackground(out, m, w, h, 0.55f) }
         }
         if (faces.isNotEmpty()) {
             // ползунки 0..100% переводятся в естественный диапазон, чтобы даже 100% не давало «маску»
@@ -176,8 +178,8 @@ object PhotoPipeline {
             out = ImageOps.colorMatrix(out, Filters.blended(f, spec.filterIntensity))
             out = ImageOps.vignetteAndFade(out, f.vignette * spec.filterIntensity, f.fade * spec.filterIntensity)
         }
-        if (spec.effect == Effect.BG_BLUR && !spec.portraitBlur) {
-            Vision.personMask(ImageOps.limitSize(out, 512))?.let { (m, w, h) -> out = ImageOps.blurBackground(out, m, w, h, 0.7f) }
+        if (spec.effect == Effect.BG_BLUR && !spec.portraitBlur && faces.isNotEmpty()) {
+            Vision.personMask(ImageOps.limitSize(out, 512))?.let { (m, w, h) -> out = ImageOps.blurBackground(out, m, w, h, 0.55f) }
         }
         out = ImageOps.applyEffect(out, spec.effect)
         return out

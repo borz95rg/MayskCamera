@@ -182,7 +182,8 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
     fun enhance() = runAi("AI улучшение…") { b -> val p = AiEnhancer.plan(b); plan = p; AiEnhancer.apply(b, p) }
     fun removeBg() = runAi("Размытие фона…") { b ->
         val m = Vision.personMask(ImageOps.limitSize(b, 512)) ?: error("нет человека")
-        ImageOps.blurBackground(b, m.first, m.second, m.third, 0.9f)
+        if (!ImageOps.personMaskUsable(m.first)) error("в кадре нет человека")
+        ImageOps.blurBackground(b, m.first, m.second, m.third, 0.7f)
     }
     fun retouch() = runAi("Ретушь лица…") { b ->
         val faces = Vision.faces(ImageOps.limitSize(b, 1600))
@@ -508,7 +509,7 @@ fun EffectsScreen(uri: Uri?, onBack: () -> Unit, onSaved: (Uri) -> Unit, onUseIn
     LaunchedEffect(sel, img) {
         val b = img ?: return@LaunchedEffect
         shown = withContext(Dispatchers.Default) {
-            if (sel == Effect.BG_BLUR) Vision.personMask(ImageOps.limitSize(b, 512))?.let { (m, w, h) -> ImageOps.blurBackground(b, m, w, h, 0.8f) } ?: b
+            if (sel == Effect.BG_BLUR) Vision.personMask(ImageOps.limitSize(b, 512))?.let { (m, w, h) -> ImageOps.blurBackground(b, m, w, h, 0.6f) } ?: b
             else ImageOps.applyEffect(b, sel, 7L)
         }
     }
@@ -549,7 +550,7 @@ fun EffectsScreen(uri: Uri?, onBack: () -> Unit, onSaved: (Uri) -> Unit, onUseIn
                     scope.launch {
                         val full = MediaStoreRepo.loadBitmap(ctx, uri!!, 3000) ?: return@launch
                         val out = withContext(Dispatchers.Default) {
-                            if (sel == Effect.BG_BLUR) Vision.personMask(ImageOps.limitSize(full, 512))?.let { (m, w, h) -> ImageOps.blurBackground(full, m, w, h, 0.8f) } ?: full
+                            if (sel == Effect.BG_BLUR) Vision.personMask(ImageOps.limitSize(full, 512))?.let { (m, w, h) -> ImageOps.blurBackground(full, m, w, h, 0.6f) } ?: full
                             else ImageOps.applyEffect(full, sel, 7L)
                         }
                         val u = MediaStoreRepo.saveJpeg(ctx, out, 95, name = MediaStoreRepo.newName("FX"))

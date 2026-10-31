@@ -542,7 +542,7 @@ class CameraController(private val context: Context) {
         // только автофокус: повторный замер экспозиции вызывал «прыжки» яркости
         cam.cameraControl.startFocusAndMetering(
             FocusMeteringAction.Builder(f.createPoint(bx, by), FocusMeteringAction.FLAG_AF)
-                .disableAutoCancel().build()
+                .setAutoCancelDuration(2, TimeUnit.SECONDS).build()
         )
     }
     // endregion
