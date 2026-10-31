@@ -328,7 +328,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
             ui.frame?.takeIf { !(isVideo && it.style.photoOnly) && (!cam.effectsActive || it.style.photoOnly) }?.let { FrameLiveOverlay(it) }
             if (settings.grid) GridOverlay()
             if (settings.horizon && !recordingNow) HorizonOverlay()
-            if (ui.arMask != com.maysk.camera.camera.ArMask.NONE && !isVideo) ArMaskOverlay(live.faces, ui.arMask, cam.front)
+            if (ui.arMask != com.maysk.camera.camera.ArMask.NONE) ArMaskOverlay(live.faces, ui.arMask, cam.front)
             else FaceOverlay(live.faces.map { it.box }, cam.front)
             focusPoint?.let { p ->
                 Box(
@@ -595,8 +595,7 @@ private fun ToolsDrawer(
         add(Tile(Icons.Filled.PhotoFilter, "Фильтры", panel == Panel.FILTERS || ui.filterId != "original") { onPanel(Panel.FILTERS) })
         add(Tile(Icons.Filled.Face, "Красота", ui.beautyOn) { onPanel(Panel.BEAUTY) })
         add(Tile(Icons.Filled.AutoFixHigh, "Эффекты", ui.effect != Effect.NONE) { onPanel(Panel.EFFECTS) })
-        // AR-маски попадают только в фото — в видеорежиме пункта нет
-        if (!isVideo) add(Tile(Icons.Filled.Mood, "AR маски", ui.arMask != com.maysk.camera.camera.ArMask.NONE) { onPanel(Panel.MASKS) })
+        add(Tile(Icons.Filled.Mood, "AR маски", ui.arMask != com.maysk.camera.camera.ArMask.NONE) { onPanel(Panel.MASKS) })
         add(Tile(Icons.Filled.Exposure, "EV", panel == Panel.EV) { onPanel(Panel.EV) })
         add(Tile(Icons.Filled.CropFree, "Рамки", ui.frame != null) { onPanel(Panel.FRAMES) })
         if (!isVideo) add(Tile(Icons.Filled.HdrOn, "HDR", ui.hdr) { vm.toggleHdr() })
@@ -959,7 +958,7 @@ private fun MasksPanel(current: com.maysk.camera.camera.ArMask, onSelect: (com.m
                 }
             }
         }
-        Text("Маска сохраняется на фото", color = Color.White.copy(alpha = 0.55f), fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
+        Text("Маски отслеживают лицо в реальном времени. Фото сохраняется с маской; в текущей версии видеозаписи маска видна в предпросмотре, но не в итоговом файле.", color = Color.White.copy(alpha = 0.65f), fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
     }
 }
 

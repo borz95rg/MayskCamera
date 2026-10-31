@@ -271,7 +271,6 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 filterId = if (userChose) it.filterId else (m.filterId ?: "original"),
                 filterAuto = if (userChose) false else m.filterId != null,
                 modeLookOffer = if (userChose && m.filterId != null && m.filterId != it.filterId) m.filterId else null,
-                arMask = if (m.recordsVideo) com.maysk.camera.camera.ArMask.NONE else it.arMask,
                 beautyOn = m == CameraMode.PORTRAIT || m == CameraMode.VLOG || it.beautyOn,
                 manual = if (m == CameraMode.PRO) it.manual else ManualSettings(),
                 ultraWide = if (m.recordsVideo || m == CameraMode.PORTRAIT) false else it.ultraWide,
