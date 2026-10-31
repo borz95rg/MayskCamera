@@ -16,7 +16,13 @@
      "w": 1.48,
      "align": "bottom",
      "aspect": 0.53333,
-     "anchor": "forehead"
+     "anchor": "forehead",
+     "atKids": [
+      0,
+      0.95,
+      -0.18
+     ],
+     "wKids": 1.32
     },
     {
      "png": "effects/face/cat_1.png",
@@ -28,7 +34,13 @@
      "w": 1.75,
      "align": "center",
      "aspect": 0.26087,
-     "anchor": "nose"
+     "anchor": "nose",
+     "atKids": [
+      0,
+      -0.5,
+      0.34
+     ],
+     "wKids": 1.55
     }
    ]
   },
@@ -48,7 +60,13 @@
      "w": 1.65,
      "align": "bottom",
      "aspect": 0.46667,
-     "anchor": "forehead"
+     "anchor": "forehead",
+     "atKids": [
+      0,
+      0.9,
+      -0.22
+     ],
+     "wKids": 1.45
     },
     {
      "png": "effects/face/puppy_1.png",
@@ -60,7 +78,13 @@
      "w": 0.62,
      "align": "center",
      "aspect": 0.86667,
-     "anchor": "nose"
+     "anchor": "nose",
+     "atKids": [
+      0,
+      -0.5,
+      0.38
+     ],
+     "wKids": 0.55
     }
    ]
   },
@@ -80,7 +104,13 @@
      "w": 1.18,
      "align": "bottom",
      "aspect": 0.76316,
-     "anchor": "forehead"
+     "anchor": "forehead",
+     "atKids": [
+      0,
+      1.0,
+      -0.22
+     ],
+     "wKids": 1.05
     },
     {
      "png": "effects/face/bunny_1.png",
@@ -92,7 +122,13 @@
      "w": 0.26,
      "align": "center",
      "aspect": 0.88889,
-     "anchor": "nose"
+     "anchor": "nose",
+     "atKids": [
+      0,
+      -0.48,
+      0.4
+     ],
+     "wKids": 0.24
     }
    ]
   },
@@ -112,7 +148,13 @@
      "w": 1.48,
      "align": "bottom",
      "aspect": 0.51163,
-     "anchor": "forehead"
+     "anchor": "forehead",
+     "atKids": [
+      0,
+      0.95,
+      -0.18
+     ],
+     "wKids": 1.32
     },
     {
      "png": "effects/face/fox_1.png",
@@ -124,7 +166,13 @@
      "w": 0.72,
      "align": "center",
      "aspect": 0.78947,
-     "anchor": "nose"
+     "anchor": "nose",
+     "atKids": [
+      0,
+      -0.54,
+      0.38
+     ],
+     "wKids": 0.64
     }
    ]
   },
@@ -144,7 +192,13 @@
      "w": 2.05,
      "align": "center",
      "aspect": 1.0,
-     "anchor": "center"
+     "anchor": "center",
+     "atKids": [
+      0,
+      0.0,
+      0.18
+     ],
+     "wKids": 1.85
     }
    ]
   },
@@ -164,7 +218,13 @@
      "w": 1.5,
      "align": "bottom",
      "aspect": 0.51163,
-     "anchor": "forehead"
+     "anchor": "forehead",
+     "atKids": [
+      0,
+      0.95,
+      -0.18
+     ],
+     "wKids": 1.35
     },
     {
      "png": "effects/face/tiger_1.png",
@@ -176,7 +236,13 @@
      "w": 0.7,
      "align": "center",
      "aspect": 0.77778,
-     "anchor": "nose"
+     "anchor": "nose",
+     "atKids": [
+      0,
+      -0.52,
+      0.38
+     ],
+     "wKids": 0.62
     }
    ]
   },
@@ -184,7 +250,7 @@
    "id": "wolf",
    "title": "Волк",
    "category": "Животные",
-   "thumb": "effects/thumbs/fox.jpg",
+   "thumb": "effects/thumbs/cat.jpg",
    "pieces": [
     {
      "png": "effects/face/wolf_0.png",
@@ -196,7 +262,13 @@
      "w": 1.5,
      "align": "bottom",
      "aspect": 0.53488,
-     "anchor": "forehead"
+     "anchor": "forehead",
+     "atKids": [
+      0,
+      0.98,
+      -0.2
+     ],
+     "wKids": 1.35
     },
     {
      "png": "effects/face/wolf_1.png",
@@ -208,7 +280,13 @@
      "w": 0.68,
      "align": "center",
      "aspect": 0.76471,
-     "anchor": "nose"
+     "anchor": "nose",
+     "atKids": [
+      0,
+      -0.52,
+      0.38
+     ],
+     "wKids": 0.6
     }
    ]
   },
@@ -216,7 +294,7 @@
    "id": "raccoon",
    "title": "Енот",
    "category": "Животные",
-   "thumb": "effects/thumbs/panda.jpg",
+   "thumb": "effects/thumbs/cat.jpg",
    "pieces": [
     {
      "png": "effects/face/raccoon_0.png",
@@ -228,7 +306,13 @@
      "w": 1.95,
      "align": "center",
      "aspect": 0.72222,
-     "anchor": "center"
+     "anchor": "center",
+     "atKids": [
+      0,
+      0.12,
+      0.2
+     ],
+     "wKids": 1.75
     }
    ]
   },
@@ -236,7 +320,7 @@
    "id": "deer",
    "title": "Олень",
    "category": "Животные",
-   "thumb": "effects/thumbs/crown.jpg",
+   "thumb": "effects/thumbs/cat.jpg",
    "pieces": [
     {
      "png": "effects/face/deer_0.png",
@@ -248,7 +332,13 @@
      "w": 1.55,
      "align": "bottom",
      "aspect": 0.6,
-     "anchor": "forehead"
+     "anchor": "forehead",
+     "atKids": [
+      0,
+      1.05,
+      -0.24
+     ],
+     "wKids": 1.38
     }
    ]
   },
@@ -256,7 +346,7 @@
    "id": "unicorn",
    "title": "Единорог",
    "category": "Животные",
-   "thumb": "effects/thumbs/crown.jpg",
+   "thumb": "effects/thumbs/cat.jpg",
    "pieces": [
     {
      "png": "effects/face/unicorn_0.png",
@@ -268,7 +358,13 @@
      "w": 1.4,
      "align": "bottom",
      "aspect": 0.74286,
-     "anchor": "forehead"
+     "anchor": "forehead",
+     "atKids": [
+      0,
+      1.0,
+      -0.24
+     ],
+     "wKids": 1.25
     }
    ]
   },
@@ -288,7 +384,13 @@
      "w": 1.55,
      "align": "bottom",
      "aspect": 0.45946,
-     "anchor": "forehead"
+     "anchor": "forehead",
+     "atKids": [
+      0,
+      0.92,
+      -0.24
+     ],
+     "wKids": 1.38
     }
    ]
   },
@@ -296,7 +398,7 @@
    "id": "devil",
    "title": "Рожки",
    "category": "3D-эффекты",
-   "thumb": "effects/thumbs/devil.jpg",
+   "thumb": "effects/thumbs/crown.jpg",
    "pieces": [
     {
      "png": "effects/face/devil_0.png",
@@ -308,7 +410,13 @@
      "w": 1.45,
      "align": "bottom",
      "aspect": 0.52778,
-     "anchor": "forehead"
+     "anchor": "forehead",
+     "atKids": [
+      0,
+      0.95,
+      -0.22
+     ],
+     "wKids": 1.3
     }
    ]
   },
@@ -316,7 +424,7 @@
    "id": "glasses",
    "title": "Неоновые очки",
    "category": "3D-эффекты",
-   "thumb": "effects/thumbs/glasses.jpg",
+   "thumb": "effects/thumbs/crown.jpg",
    "pieces": [
     {
      "png": "effects/face/glasses_0.png",
@@ -328,7 +436,13 @@
      "w": 1.65,
      "align": "center",
      "aspect": 0.40541,
-     "anchor": "eyes"
+     "anchor": "eyes",
+     "atKids": [
+      0,
+      0.04,
+      0.16
+     ],
+     "wKids": 1.5
     }
    ]
   },
@@ -336,7 +450,7 @@
    "id": "halo",
    "title": "Нимб",
    "category": "3D-эффекты",
-   "thumb": "effects/thumbs/halo.jpg",
+   "thumb": "effects/thumbs/crown.jpg",
    "pieces": [
     {
      "png": "effects/face/halo_0.png",
@@ -348,7 +462,13 @@
      "w": 1.8,
      "align": "bottom",
      "aspect": 0.34375,
-     "anchor": "forehead"
+     "anchor": "forehead",
+     "atKids": [
+      0,
+      1.05,
+      -0.3
+     ],
+     "wKids": 1.6
     }
    ]
   },
@@ -356,7 +476,7 @@
    "id": "flower",
    "title": "Венок",
    "category": "3D-эффекты",
-   "thumb": "effects/thumbs/flower.jpg",
+   "thumb": "effects/thumbs/crown.jpg",
    "pieces": [
     {
      "png": "effects/face/flower_0.png",
@@ -368,7 +488,13 @@
      "w": 1.6,
      "align": "bottom",
      "aspect": 0.39474,
-     "anchor": "forehead"
+     "anchor": "forehead",
+     "atKids": [
+      0,
+      0.95,
+      -0.24
+     ],
+     "wKids": 1.42
     }
    ]
   },
@@ -376,7 +502,7 @@
    "id": "fire",
    "title": "Огненная корона",
    "category": "3D-эффекты",
-   "thumb": "effects/thumbs/fire.jpg",
+   "thumb": "effects/thumbs/crown.jpg",
    "pieces": [
     {
      "png": "effects/face/fire_0.png",
@@ -388,7 +514,13 @@
      "w": 1.5,
      "align": "bottom",
      "aspect": 0.52778,
-     "anchor": "forehead"
+     "anchor": "forehead",
+     "atKids": [
+      0,
+      0.95,
+      -0.22
+     ],
+     "wKids": 1.35
     }
    ]
   },
@@ -396,7 +528,7 @@
    "id": "ice",
    "title": "Ледяной кристалл",
    "category": "3D-эффекты",
-   "thumb": "effects/thumbs/ice.jpg",
+   "thumb": "effects/thumbs/crown.jpg",
    "pieces": [
     {
      "png": "effects/face/ice_0.png",
@@ -408,7 +540,13 @@
      "w": 1.4,
      "align": "bottom",
      "aspect": 0.65625,
-     "anchor": "forehead"
+     "anchor": "forehead",
+     "atKids": [
+      0,
+      0.92,
+      -0.22
+     ],
+     "wKids": 1.25
     }
    ]
   },
@@ -416,7 +554,7 @@
    "id": "visor",
    "title": "Кибер-визор",
    "category": "3D-эффекты",
-   "thumb": "effects/thumbs/visor.jpg",
+   "thumb": "effects/thumbs/crown.jpg",
    "pieces": [
     {
      "png": "effects/face/visor_0.png",
@@ -428,7 +566,13 @@
      "w": 1.7,
      "align": "center",
      "aspect": 0.31579,
-     "anchor": "eyes"
+     "anchor": "eyes",
+     "atKids": [
+      0,
+      0.06,
+      0.16
+     ],
+     "wKids": 1.55
     }
    ]
   },
@@ -436,7 +580,7 @@
    "id": "cyber",
    "title": "Киберпанк",
    "category": "3D-эффекты",
-   "thumb": "effects/thumbs/visor.jpg",
+   "thumb": "effects/thumbs/crown.jpg",
    "pieces": [
     {
      "png": "effects/face/cyber_0.png",
@@ -448,7 +592,13 @@
      "w": 1.7,
      "align": "center",
      "aspect": 0.57143,
-     "anchor": "center"
+     "anchor": "center",
+     "atKids": [
+      0,
+      0.04,
+      0.18
+     ],
+     "wKids": 1.55
     }
    ]
   },
@@ -456,7 +606,7 @@
    "id": "rainbow",
    "title": "Радуга",
    "category": "3D-эффекты",
-   "thumb": "effects/thumbs/halo.jpg",
+   "thumb": "effects/thumbs/crown.jpg",
    "pieces": [
     {
      "png": "effects/face/rainbow_0.png",
@@ -468,7 +618,13 @@
      "w": 1.9,
      "align": "bottom",
      "aspect": 0.45,
-     "anchor": "forehead"
+     "anchor": "forehead",
+     "atKids": [
+      0,
+      1.08,
+      -0.3
+     ],
+     "wKids": 1.7
     }
    ]
   },
@@ -476,7 +632,7 @@
    "id": "butterfly",
    "title": "Бабочка",
    "category": "Украшения",
-   "thumb": "effects/thumbs/butterfly.jpg",
+   "thumb": "effects/thumbs/sparkles.jpg",
    "pieces": [
     {
      "png": "effects/face/butterfly_0.png",
@@ -488,7 +644,13 @@
      "w": 1.3,
      "align": "bottom",
      "aspect": 0.65625,
-     "anchor": "forehead"
+     "anchor": "forehead",
+     "atKids": [
+      0,
+      0.92,
+      -0.22
+     ],
+     "wKids": 1.15
     }
    ]
   },
@@ -496,7 +658,7 @@
    "id": "hearts",
    "title": "Сердечки",
    "category": "Украшения",
-   "thumb": "effects/thumbs/hearts.jpg",
+   "thumb": "effects/thumbs/sparkles.jpg",
    "pieces": [
     {
      "png": "effects/face/hearts_0.png",
@@ -508,7 +670,13 @@
      "w": 1.7,
      "align": "center",
      "aspect": 0.72222,
-     "anchor": "center"
+     "anchor": "center",
+     "atKids": [
+      0,
+      0.18,
+      0.22
+     ],
+     "wKids": 1.55
     }
    ]
   },
@@ -528,7 +696,13 @@
      "w": 1.8,
      "align": "center",
      "aspect": 1.0,
-     "anchor": "center"
+     "anchor": "center",
+     "atKids": [
+      0,
+      0.08,
+      0.2
+     ],
+     "wKids": 1.6
     }
    ]
   },
@@ -548,7 +722,13 @@
      "w": 1.6,
      "align": "center",
      "aspect": 0.66667,
-     "anchor": "center"
+     "anchor": "center",
+     "atKids": [
+      0,
+      0.08,
+      0.2
+     ],
+     "wKids": 1.45
     }
    ]
   },
@@ -556,7 +736,7 @@
    "id": "heart_eyes",
    "title": "Глаза-сердца",
    "category": "Украшения",
-   "thumb": "effects/thumbs/hearts.jpg",
+   "thumb": "effects/thumbs/sparkles.jpg",
    "pieces": [
     {
      "png": "effects/face/heart_eyes_0.png",
@@ -568,7 +748,91 @@
      "w": 1.55,
      "align": "center",
      "aspect": 0.4,
-     "anchor": "eyes"
+     "anchor": "eyes",
+     "atKids": [
+      0,
+      0.04,
+      0.16
+     ],
+     "wKids": 1.4
+    }
+   ]
+  },
+  {
+   "id": "pearls",
+   "title": "Жемчуг",
+   "category": "Украшения",
+   "thumb": "effects/thumbs/sparkles.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/pearls_0.png",
+     "at": [
+      0,
+      -0.15,
+      0.28
+     ],
+     "w": 1.5,
+     "align": "center",
+     "aspect": 0.4375,
+     "anchor": "cheeks",
+     "atKids": [
+      0,
+      -0.12,
+      0.26
+     ],
+     "wKids": 1.35
+    }
+   ]
+  },
+  {
+   "id": "flower_cheek",
+   "title": "Цветы на щеках",
+   "category": "Украшения",
+   "thumb": "effects/thumbs/sparkles.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/flower_cheek_0.png",
+     "at": [
+      0,
+      -0.28,
+      0.3
+     ],
+     "w": 1.4,
+     "align": "center",
+     "aspect": 0.375,
+     "anchor": "cheeks",
+     "atKids": [
+      0,
+      -0.24,
+      0.28
+     ],
+     "wKids": 1.25
+    }
+   ]
+  },
+  {
+   "id": "glitter",
+   "title": "Глиттер",
+   "category": "Украшения",
+   "thumb": "effects/thumbs/sparkles.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/glitter_0.png",
+     "at": [
+      0,
+      0.05,
+      0.2
+     ],
+     "w": 1.7,
+     "align": "center",
+     "aspect": 0.83333,
+     "anchor": "center",
+     "atKids": [
+      0,
+      0.04,
+      0.18
+     ],
+     "wKids": 1.55
     }
    ]
   },
@@ -576,7 +840,7 @@
    "id": "freckles",
    "title": "Веснушки",
    "category": "Макияж",
-   "thumb": "effects/thumbs/freckles.jpg",
+   "thumb": "effects/thumbs/blush.jpg",
    "pieces": [
     {
      "png": "effects/face/freckles_0.png",
@@ -588,7 +852,13 @@
      "w": 1.3,
      "align": "center",
      "aspect": 0.38462,
-     "anchor": "nose"
+     "anchor": "nose",
+     "atKids": [
+      0,
+      -0.22,
+      0.28
+     ],
+     "wKids": 1.18
     }
    ]
   },
@@ -608,7 +878,13 @@
      "w": 1.45,
      "align": "center",
      "aspect": 0.30556,
-     "anchor": "cheeks"
+     "anchor": "cheeks",
+     "atKids": [
+      0,
+      -0.2,
+      0.26
+     ],
+     "wKids": 1.32
     }
    ]
   },
@@ -616,7 +892,7 @@
    "id": "liner",
    "title": "Стрелки",
    "category": "Макияж",
-   "thumb": "effects/thumbs/liner.jpg",
+   "thumb": "effects/thumbs/blush.jpg",
    "pieces": [
     {
      "png": "effects/face/liner_0.png",
@@ -628,7 +904,13 @@
      "w": 1.48,
      "align": "center",
      "aspect": 0.20513,
-     "anchor": "eyes"
+     "anchor": "eyes",
+     "atKids": [
+      0,
+      0.08,
+      0.1
+     ],
+     "wKids": 1.35
     }
    ]
   },
@@ -636,7 +918,7 @@
    "id": "lipgloss",
    "title": "Блеск для губ",
    "category": "Макияж",
-   "thumb": "effects/thumbs/lipgloss.jpg",
+   "thumb": "effects/thumbs/blush.jpg",
    "pieces": [
     {
      "png": "effects/face/lipgloss_0.png",
@@ -648,7 +930,13 @@
      "w": 0.55,
      "align": "center",
      "aspect": 0.38235,
-     "anchor": "mouth"
+     "anchor": "mouth",
+     "atKids": [
+      0,
+      -0.65,
+      0.38
+     ],
+     "wKids": 0.5
     }
    ]
   },
@@ -656,7 +944,7 @@
    "id": "hearts_cheeks",
    "title": "Сердечки на щеках",
    "category": "Макияж",
-   "thumb": "effects/thumbs/hearts_cheeks.jpg",
+   "thumb": "effects/thumbs/blush.jpg",
    "pieces": [
     {
      "png": "effects/face/hearts_cheeks_0.png",
@@ -668,7 +956,13 @@
      "w": 1.35,
      "align": "center",
      "aspect": 0.35294,
-     "anchor": "cheeks"
+     "anchor": "cheeks",
+     "atKids": [
+      0,
+      -0.28,
+      0.3
+     ],
+     "wKids": 1.22
     }
    ]
   },
@@ -676,7 +970,7 @@
    "id": "glam",
    "title": "Вечерний макияж",
    "category": "Макияж",
-   "thumb": "effects/thumbs/liner.jpg",
+   "thumb": "effects/thumbs/blush.jpg",
    "pieces": [
     {
      "png": "effects/face/glam_0.png",
@@ -688,7 +982,13 @@
      "w": 1.55,
      "align": "center",
      "aspect": 0.25641,
-     "anchor": "eyes"
+     "anchor": "eyes",
+     "atKids": [
+      0,
+      0.06,
+      0.12
+     ],
+     "wKids": 1.4
     }
    ]
   },
@@ -696,7 +996,7 @@
    "id": "mustache",
    "title": "Усы",
    "category": "Макияж",
-   "thumb": "effects/thumbs/none.jpg",
+   "thumb": "effects/thumbs/blush.jpg",
    "pieces": [
     {
      "png": "effects/face/mustache_0.png",
@@ -708,7 +1008,13 @@
      "w": 0.95,
      "align": "center",
      "aspect": 0.33333,
-     "anchor": "mouth"
+     "anchor": "mouth",
+     "atKids": [
+      0,
+      -0.5,
+      0.36
+     ],
+     "wKids": 0.85
     }
    ]
   },
@@ -728,7 +1034,143 @@
      "w": 0.7,
      "align": "center",
      "aspect": 0.42857,
-     "anchor": "nose"
+     "anchor": "nose",
+     "atKids": [
+      0,
+      -0.32,
+      0.33
+     ],
+     "wKids": 0.62
+    }
+   ]
+  },
+  {
+   "id": "eyeshadow",
+   "title": "Тени",
+   "category": "Макияж",
+   "thumb": "effects/thumbs/blush.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/eyeshadow_0.png",
+     "at": [
+      0,
+      0.06,
+      0.12
+     ],
+     "w": 1.5,
+     "align": "center",
+     "aspect": 0.23077,
+     "anchor": "eyes",
+     "atKids": [
+      0,
+      0.05,
+      0.1
+     ],
+     "wKids": 1.35
+    }
+   ]
+  },
+  {
+   "id": "highlighter",
+   "title": "Хайлайтер",
+   "category": "Макияж",
+   "thumb": "effects/thumbs/blush.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/highlighter_0.png",
+     "at": [
+      0,
+      -0.1,
+      0.25
+     ],
+     "w": 1.4,
+     "align": "center",
+     "aspect": 0.61538,
+     "anchor": "center",
+     "atKids": [
+      0,
+      -0.08,
+      0.22
+     ],
+     "wKids": 1.25
+    }
+   ]
+  },
+  {
+   "id": "contour",
+   "title": "Контуринг",
+   "category": "Макияж",
+   "thumb": "effects/thumbs/blush.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/contour_0.png",
+     "at": [
+      0,
+      -0.15,
+      0.22
+     ],
+     "w": 1.8,
+     "align": "center",
+     "aspect": 0.6,
+     "anchor": "center",
+     "atKids": [
+      0,
+      -0.12,
+      0.2
+     ],
+     "wKids": 1.6
+    }
+   ]
+  },
+  {
+   "id": "lipstick",
+   "title": "Помада",
+   "category": "Макияж",
+   "thumb": "effects/thumbs/blush.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/lipstick_0.png",
+     "at": [
+      0,
+      -0.72,
+      0.4
+     ],
+     "w": 0.6,
+     "align": "center",
+     "aspect": 0.39474,
+     "anchor": "mouth",
+     "atKids": [
+      0,
+      -0.65,
+      0.38
+     ],
+     "wKids": 0.54
+    }
+   ]
+  },
+  {
+   "id": "eyelashes",
+   "title": "Ресницы",
+   "category": "Макияж",
+   "thumb": "effects/thumbs/blush.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/eyelashes_0.png",
+     "at": [
+      0,
+      0.12,
+      0.1
+     ],
+     "w": 1.5,
+     "align": "center",
+     "aspect": 0.15385,
+     "anchor": "eyes",
+     "atKids": [
+      0,
+      0.1,
+      0.08
+     ],
+     "wKids": 1.35
     }
    ]
   }

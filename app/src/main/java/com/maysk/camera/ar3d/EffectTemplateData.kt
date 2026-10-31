@@ -2,7 +2,7 @@ package com.maysk.camera.ar3d
 
 /** Описание шаблонов эффектов (templates.json) — без Android, проверяется JVM-тестом. */
 object EffectTemplateData {
-    class Piece(val png: String, val at: FloatArray, val w: Float, val align: String, val aspect: Float, val anchor: String = "center")
+    class Piece(val png: String, val at: FloatArray, val w: Float, val align: String, val aspect: Float, val anchor: String = "center", val atKids: FloatArray? = null, val wKids: Float = -1f)
     class Face(val id: String, val title: String, val category: String, val thumb: String, val pieces: List<Piece>)
     class Frame(val id: String, val title: String, val png: String, val thumb: String, val mode: String)
     class Background(val id: String, val title: String, val jpg: String, val thumb: String)
@@ -16,7 +16,8 @@ object EffectTemplateData {
             Face(o["id"] as String, o["title"] as? String ?: "", o["category"] as? String ?: "", o["thumb"] as? String ?: "",
                 o["pieces"].list().map { p ->
                     val q = p.obj()
-                    Piece(q["png"] as String, q["at"].floats(), q["w"].float(1f), q["align"] as? String ?: "center", q["aspect"].float(1f), q["anchor"] as? String ?: "center")
+                    Piece(q["png"] as String, q["at"].floats(), q["w"].float(1f), q["align"] as? String ?: "center", q["aspect"].float(1f), q["anchor"] as? String ?: "center",
+                    if (q.contains("atKids")) q["atKids"].floats() else null, q["wKids"].float(-1f))
                 })
         }
         val frames = root["frames"].list().map { f ->

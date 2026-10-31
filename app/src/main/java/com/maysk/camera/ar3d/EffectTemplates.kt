@@ -33,7 +33,7 @@ object EffectTemplates {
     /** Кусочки шаблона лица → спрайты для рендера. [alpha] — интенсивность эффекта. */
     fun sprites(ctx: Context, face: EffectTemplateData.Face, alpha: Float): List<Sprite> = face.pieces.mapNotNull { p ->
         val b = bitmap(ctx, p.png) ?: return@mapNotNull null
-        Sprite(p.png, b, p.at, p.w, p.aspect, p.align == "bottom", alpha, p.anchor)
+        Sprite(p.png, b, p.at, p.w, p.aspect, p.align == "bottom", alpha, p.anchor, p.atKids, p.wKids)
     }
 }
 
@@ -41,11 +41,13 @@ object EffectTemplates {
 class Sprite(
     val key: String,
     val bitmap: Bitmap,
-    val at: FloatArray,      // точка на лице, лицевые единицы (базовые, для «среднего» лица)
-    val width: Float,        // ширина, лицевые единицы
-    val aspect: Float,       // высота / ширина
+    val at: FloatArray,      // взрослый / среднее лицо
+    val width: Float,
+    val aspect: Float,
     val bottomAligned: Boolean,
     val alpha: Float,
-    /** forehead / eyes / nose / mouth / cheeks / center — для авто-подстройки под овал */
     val anchor: String = "center",
+    /** Координаты/ширина для детского овала (faceRatio < ~1.9); null → интерполяция */
+    val atKids: FloatArray? = null,
+    val wKids: Float = -1f,
 )

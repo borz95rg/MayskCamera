@@ -434,7 +434,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setEffectAlpha(a: Float) {
         _ui.update { it.copy(effectAlpha = a) }
-        tplSprites = tplSprites.map { com.maysk.camera.ar3d.Sprite(it.key, it.bitmap, it.at, it.width, it.aspect, it.bottomAligned, a, it.anchor) }
+        tplSprites = tplSprites.map { com.maysk.camera.ar3d.Sprite(it.key, it.bitmap, it.at, it.width, it.aspect, it.bottomAligned, a, it.anchor, it.atKids, it.wKids) }
         if (_ui.value.filterId != "original") setFilterIntensity(a)
     }
 

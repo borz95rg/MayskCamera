@@ -214,27 +214,36 @@ class ArRenderer {
         GLES20.glUniform1i(suTex, 7)
         // время для дыхания / моргания (секунды)
         val tSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
-        // faceRatio: взрослый ~2.1, ребёнок ~1.7 → масштабируем вертикальные якоря
+        // faceRatio: взрослый ~2.1–2.4, ребёнок ~1.6–1.9
         val ratio = f.pose.faceRatio.coerceIn(1.4f, 3.0f)
+        // 0 = чистый «детский» шаблон, 1 = взрослый
+        val adultT = ((ratio - 1.7f) / (2.2f - 1.7f)).coerceIn(0f, 1f)
         val yScale = (ratio / 2.1f).coerceIn(0.75f, 1.25f)
         for (s in f.sprites) {
             if (s.alpha <= 0.01f) continue
-            val (sx, sy, aMul) = FaceAnim.spriteAnim(s.key, tSec)
+            val (sxAnim, syAnim, aMul) = FaceAnim.spriteAnim(s.key, tSec)
             val lift = FaceAnim.topLift(s.key, tSec)
-            // авто-выравнивание: якорь forehead/eyes/mouth тянется пропорционально высоте лица
-            val baseY = s.at[1]
-            val adaptY = when (s.anchor) {
-                "forehead" -> baseY * yScale           // уши/корона выше на вытянутом овале
-                "eyes"     -> baseY * (0.5f + 0.5f * yScale)
-                "nose"     -> baseY * (0.7f + 0.3f * yScale)
-                "mouth"    -> baseY * yScale           // губы/усы ниже на длинном лице
-                "cheeks"   -> baseY * (0.8f + 0.2f * yScale)
-                else       -> baseY
+            // выбор adult / kids координат + плавная интерполяция
+            val atA = s.at
+            val atK = s.atKids ?: s.at
+            val wA = s.width
+            val wK = if (s.wKids > 0f) s.wKids else s.width
+            val baseX = atK[0] + (atA[0] - atK[0]) * adultT
+            val baseY0 = atK[1] + (atA[1] - atK[1]) * adultT
+            val baseZ = atK.getOrElse(2) { 0f } + (atA.getOrElse(2) { 0f } - atK.getOrElse(2) { 0f }) * adultT
+            val baseW = wK + (wA - wK) * adultT
+            val baseY = when (s.anchor) {
+                "forehead" -> baseY0 * yScale
+                "eyes"     -> baseY0 * (0.5f + 0.5f * yScale)
+                "nose"     -> baseY0 * (0.7f + 0.3f * yScale)
+                "mouth"    -> baseY0 * yScale
+                "cheeks"   -> baseY0 * (0.8f + 0.2f * yScale)
+                else       -> baseY0
             }
-            val hw = s.width * sx / 2
-            val h = s.width * s.aspect * sy
-            val cy = (if (s.bottomAligned) adaptY + h / 2 else adaptY) + lift
-            val x = s.at[0]; val z = s.at.getOrElse(2) { 0f }
+            val hw = baseW * sxAnim / 2
+            val h = baseW * s.aspect * syAnim
+            val cy = (if (s.bottomAligned) baseY + h / 2 else baseY) + lift
+            val x = baseX; val z = baseZ
             // 4 вершины: позиция в лицевых единицах (xyz) + UV
             val v = floatArrayOf(
                 x - hw, cy + h / 2, z, 0f, 0f,
