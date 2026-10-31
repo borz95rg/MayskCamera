@@ -2,66 +2,61 @@ package com.maysk.camera.ar3d
 
 import kotlin.math.PI
 import kotlin.math.sin
-import kotlin.math.cos
 import kotlin.math.floor
 
 /**
- * Процедурная анимация лица для AR-оверлеев:
- *  - дыхание: мягкая пульсация масштаба (~0.25 Гц, ±1.5%)
- *  - моргание: быстрое сжатие по Y + лёгкое падение alpha каждые 2.8–4.5 с
- *
- * Не зависит от ML-открытости глаз (её в пайплайне нет) — выглядит естественно
- * на любых масках/шаблонах.
+ * Анимация лица: дыхание + моргание.
+ * Моргание предпочитает реальное [eyeOpen] из mesh; если недоступно — синтетика.
  */
 object FaceAnim {
-    /** Глобальный масштаб от дыхания: 1 ± amplitude. */
     fun breathScale(tSec: Float, amplitude: Float = 0.015f, hz: Float = 0.28f): Float {
-        // два гармонических тона — менее «механично»
         val a = sin(2.0 * PI * hz * tSec)
         val b = sin(2.0 * PI * hz * 0.53 * tSec + 1.2)
         return (1.0 + amplitude * (0.72 * a + 0.28 * b)).toFloat()
     }
 
-    /**
-     * Смещение вверх для «верхних» кусочков (уши, корона, нимб) при вдохе.
-     * В лицевых единицах, до умножения на scale позы.
-     */
     fun breathLift(tSec: Float, amount: Float = 0.012f, hz: Float = 0.28f): Float {
-        val a = sin(2.0 * PI * hz * tSec)
-        return (amount * a).toFloat()
+        return (amount * sin(2.0 * PI * hz * tSec)).toFloat()
     }
 
-    /**
-     * Фаза моргания 0..1:
-     *  0 — глаза открыты, 1 — полностью закрыты (в середине клипа).
-     * Клип ~120 мс, интервал между морганиями псевдослучаен 2.6–4.8 с.
-     */
-    fun blinkAmount(tSec: Float): Float {
-        // детерминированный «случайный» интервал по номеру цикла
-        val cycle = 3.4 // средний период
-        val phase = tSec / cycle
-        val n = floor(phase)
-        // jitter от номера цикла
+    /** Синтетическое моргание (fallback). */
+    fun blinkAmountSynthetic(tSec: Float): Float {
+        val cycle = 3.4
+        val n = floor(tSec / cycle)
         val jitter = (sin(n * 12.9898) * 43758.5453)
-        val fracJ = (jitter - floor(jitter)).toFloat() // 0..1
-        val period = 2.6 + fracJ * 2.2 // 2.6..4.8
+        val fracJ = (jitter - floor(jitter)).toFloat()
+        val period = 2.6 + fracJ * 2.2
         val local = ((tSec % period) / period).toFloat()
-        // моргание в конце периода, длительность ~3.5% периода (~100–170 мс)
         val blinkStart = 0.965f
         if (local < blinkStart) return 0f
         val u = ((local - blinkStart) / (1f - blinkStart)).coerceIn(0f, 1f)
-        // быстро вниз и вверх: sin(pi * u)
         return sin(PI * u).toFloat()
     }
 
-    /** Роль кусочка по имени файла — чтобы моргать только «глазные» накладки. */
-    enum class Role { TOP, EYE, CHEEK, OTHER }
+    /**
+     * 0 = открыто, 1 = закрыто.
+     * [eyeOpen] из mesh: 1 открыт, 0 закрыт → blink = 1 - eyeOpen.
+     * Если eyeOpen ≈ всегда 1 (нет данных), мешаем с синтетикой слабо.
+     */
+    fun blinkAmount(tSec: Float, eyeOpen: Float = -1f): Float {
+        if (eyeOpen in 0f..1f) {
+            // лёгкая кривая: полностью закрыто только при eyeOpen < 0.25
+            val closed = (1f - eyeOpen).coerceIn(0f, 1f)
+            return (closed * closed * (3f - 2f * closed)) // smoothstep-ish stronger near closed
+        }
+        return blinkAmountSynthetic(tSec)
+    }
+
+    enum class Role { TOP, EYE, CHEEK, EAR_L, EAR_R, OTHER }
 
     fun roleOf(key: String): Role {
         val k = key.lowercase()
         return when {
+            k.contains("_l.") || k.contains("_l_") || k.endsWith("_l") || k.contains("ear_l") || k.contains("left") -> Role.EAR_L
+            k.contains("_r.") || k.contains("_r_") || k.endsWith("_r") || k.contains("ear_r") || k.contains("right") -> Role.EAR_R
             k.contains("liner") || k.contains("glasses") || k.contains("visor") ||
-            k.contains("glam") || k.contains("heart_eyes") -> Role.EYE
+            k.contains("glam") || k.contains("heart_eyes") || k.contains("eyeshadow") ||
+            k.contains("eyelashes") -> Role.EYE
             k.contains("cat_0") || k.contains("fox_0") || k.contains("bunny_0") ||
             k.contains("puppy_0") || k.contains("tiger_0") || k.contains("wolf_0") ||
             k.contains("deer") || k.contains("unicorn") || k.contains("crown") ||
@@ -69,39 +64,37 @@ object FaceAnim {
             k.contains("flower") || k.contains("ice") || k.contains("rainbow") ||
             k.contains("butterfly") || k.contains("sparkles") || k.contains("hearts_0") -> Role.TOP
             k.contains("blush") || k.contains("hearts_cheeks") || k.contains("freckles") ||
-            k.contains("nose_blush") -> Role.CHEEK
+            k.contains("nose_blush") || k.contains("pearls") || k.contains("flower_cheek") -> Role.CHEEK
             else -> Role.OTHER
         }
     }
 
-    /**
-     * Параметры анимации для одного спрайта на текущий момент.
-     * @return Triple(scaleX, scaleY, alphaMul)
-     */
-    fun spriteAnim(key: String, tSec: Float): Triple<Float, Float, Float> {
+    /** scaleX, scaleY, alphaMul */
+    fun spriteAnim(key: String, tSec: Float, eyeOpen: Float = -1f, yaw: Float = 0f): Triple<Float, Float, Float> {
         val breath = breathScale(tSec)
-        val blink = blinkAmount(tSec)
+        val blink = blinkAmount(tSec, eyeOpen)
         val role = roleOf(key)
         return when (role) {
             Role.EYE -> {
-                // при моргании сжимаем по Y и слегка гасим
-                val sy = 1f - 0.85f * blink
-                val a = 1f - 0.55f * blink
+                val sy = 1f - 0.88f * blink
+                val a = 1f - 0.6f * blink
                 Triple(breath, breath * sy, a)
             }
-            Role.TOP -> {
-                // уши/корона дышат + лёгкий «подъём»
-                Triple(breath, breath, 1f)
+            Role.EAR_L -> {
+                // при повороте вправо (yaw>0) левое ухо уходит за голову
+                val hide = ((yaw - 0.15f) / 0.55f).coerceIn(0f, 1f)
+                Triple(breath, breath, 1f - 0.85f * hide)
             }
-            Role.CHEEK -> {
-                // щёки чуть пульсируют вместе с дыханием
-                Triple(breath, breath, 1f)
+            Role.EAR_R -> {
+                val hide = ((-yaw - 0.15f) / 0.55f).coerceIn(0f, 1f)
+                Triple(breath, breath, 1f - 0.85f * hide)
             }
-            Role.OTHER -> Triple(breath, breath, 1f)
+            Role.TOP, Role.CHEEK, Role.OTHER -> Triple(breath, breath, 1f)
         }
     }
 
     fun topLift(key: String, tSec: Float): Float {
-        return if (roleOf(key) == Role.TOP) breathLift(tSec) else 0f
+        val r = roleOf(key)
+        return if (r == Role.TOP || r == Role.EAR_L || r == Role.EAR_R) breathLift(tSec) else 0f
     }
 }

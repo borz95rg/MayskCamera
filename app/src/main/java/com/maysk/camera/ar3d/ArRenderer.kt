@@ -177,7 +177,8 @@ class ArRenderer {
     // ---------- спрайты ----------
     private var sprProgram = 0
     private var sPos = -1; private var sUv = -1
-    private var suModel = -1; private var suPrevToOut = -1; private var suAspect = -1; private var suTex = -1; private var suAlpha = -1
+    private var suModel = -1; private var suPrevToOut = -1; private var suAspect = -1; private var suTex = -1; private var suAlpha = -1; private var suLight = -1
+    private var sprVertBuf: FloatBuffer? = null
     private val textures = HashMap<String, Int>()
 
     private fun texture(s: Sprite): Int {
@@ -199,7 +200,7 @@ class ArRenderer {
             sPos = GLES20.glGetAttribLocation(sprProgram, "aPos"); sUv = GLES20.glGetAttribLocation(sprProgram, "aUv")
             suModel = GLES20.glGetUniformLocation(sprProgram, "uModel"); suPrevToOut = GLES20.glGetUniformLocation(sprProgram, "uPrevToOut")
             suAspect = GLES20.glGetUniformLocation(sprProgram, "uAspect"); suTex = GLES20.glGetUniformLocation(sprProgram, "uTex")
-            suAlpha = GLES20.glGetUniformLocation(sprProgram, "uAlpha")
+            suAlpha = GLES20.glGetUniformLocation(sprProgram, "uAlpha"); suLight = GLES20.glGetUniformLocation(sprProgram, "uLight")
         }
         // лишние текстуры (сменили шаблон) — освобождаем
         val keys = f.sprites.map { it.key }.toSet()
@@ -208,6 +209,9 @@ class ArRenderer {
         GLES20.glUniformMatrix4fv(suModel, 1, false, model, 0)
         GLES20.glUniformMatrix4fv(suPrevToOut, 1, false, prevToOut, 0)
         GLES20.glUniform1f(suAspect, f.viewAspect)
+        // лёгкий свет: чуть ярче «к камере»
+        val light = (1f + 0.12f * f.pose.forward[2].coerceIn(-1f, 1f)).coerceIn(0.85f, 1.15f)
+        GLES20.glUniform1f(suLight, light)
         GLES20.glEnable(GLES20.GL_BLEND)
         GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE7)
@@ -221,7 +225,7 @@ class ArRenderer {
         val yScale = (ratio / 2.1f).coerceIn(0.75f, 1.25f)
         for (s in f.sprites) {
             if (s.alpha <= 0.01f) continue
-            val (sxAnim, syAnim, aMul) = FaceAnim.spriteAnim(s.key, tSec)
+            val (sxAnim, syAnim, aMul) = FaceAnim.spriteAnim(s.key, tSec, f.pose.eyeOpen, f.pose.yaw)
             val lift = FaceAnim.topLift(s.key, tSec)
             // выбор adult / kids координат + плавная интерполяция
             val atA = s.at
@@ -251,7 +255,9 @@ class ArRenderer {
                 x - hw, cy - h / 2, z, 0f, 1f,
                 x + hw, cy - h / 2, z, 1f, 1f,
             )
-            val buf = ByteBuffer.allocateDirect(v.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(v); position(0) }
+            val buf = sprVertBuf?.takeIf { it.capacity() >= v.size }
+                ?: ByteBuffer.allocateDirect(v.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().also { sprVertBuf = it }
+            buf.clear(); buf.put(v); buf.position(0)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture(s))
             GLES20.glUniform1f(suAlpha, s.alpha * aMul)
             buf.position(0)
@@ -357,8 +363,16 @@ precision mediump float;
 varying vec2 vUv;
 uniform sampler2D uTex;
 uniform float uAlpha;
+uniform float uLight; // 0.85..1.15 лёгкий tint от направления головы
 void main() {
-    gl_FragColor = texture2D(uTex, vUv) * uAlpha;
+    vec4 c = texture2D(uTex, vUv);
+    // мягкое затемнение краёв спрайта (меньше вид «наклейки»)
+    float edge = smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.92, vUv.x)
+               * smoothstep(0.0, 0.08, vUv.y) * smoothstep(1.0, 0.92, vUv.y);
+    c.rgb *= uLight;
+    c *= uAlpha;
+    c.a *= 0.65 + 0.35 * edge;
+    gl_FragColor = c;
 }
 """
 

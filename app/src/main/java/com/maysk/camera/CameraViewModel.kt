@@ -536,6 +536,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         val livePose = com.maysk.camera.ar3d.FacePose(
             pose.origin, pose.right, pose.up, pose.forward,
             pose.scale * breath, pose.mouthOpen, pose.faceRatio,
+            pose.eyeOpen, pose.yaw,
         )
         // «невидимую голову» переносим из позы сетки в текущую сглаженную позу
         val mp = lastMeshPose

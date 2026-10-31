@@ -50,10 +50,13 @@ class FacePose(
     val mouthOpen: Float,     // 0..1
     /**
      * Отношение «лоб→подбородок / расстояние между внешними уголками глаз».
-     * Взрослый ≈ 2.0–2.4, ребёнок ≈ 1.6–2.0. Нужен, чтобы уши/короны
-     * автоматически поднимались на высоком овале и не «висели» на детском лице.
+     * Взрослый ≈ 2.0–2.4, ребёнок ≈ 1.6–2.0.
      */
     val faceRatio: Float = 2.1f,
+    /** 0 = глаза закрыты, 1 = открыты (по mesh век). */
+    val eyeOpen: Float = 1f,
+    /** Поворот головы влево/вправо ≈ -1..+1 (для occlusion ушей). */
+    val yaw: Float = 0f,
 ) {
     fun apply(mx: Float, my: Float, mz: Float, out: FloatArray, o: Int = 0) {
         for (k in 0 until 3) out[o + k] = origin[k] + scale * (mx * right[k] + my * up[k] + mz * forward[k])
@@ -76,6 +79,12 @@ object FaceTransform {
     const val CHIN = 152
     const val LIP_UPPER = 13
     const val LIP_LOWER = 14
+    // веки (MediaPipe Face Mesh)
+    const val LEFT_EYE_TOP = 159
+    const val LEFT_EYE_BOTTOM = 145
+    const val RIGHT_EYE_TOP = 386
+    const val RIGHT_EYE_BOTTOM = 374
+    const val NOSE_TIP = 1
 
     /** Поза по 468 точкам; null, если точек нет или они вырождены. */
     fun pose(vertices: List<FloatArray>, map: ViewMapping): FacePose? {
@@ -106,10 +115,20 @@ object FaceTransform {
         val origin = floatArrayOf((p[a] + p[b]) / 2, (p[a + 1] + p[b + 1]) / 2, (p[a + 2] + p[b + 2]) / 2)
         val lip = sqrt(sq(p[lu] - p[ll]) + sq(p[lu + 1] - p[ll + 1]) + sq(p[lu + 2] - p[ll + 2])) / scale
         val mouth = ((lip - 0.06f) / 0.18f).coerceIn(0f, 1f)
-        // высота лица в единицах inter-ocular distance
         val faceH = sqrt(sq(p[ch] - p[fh]) + sq(p[ch + 1] - p[fh + 1]) + sq(p[ch + 2] - p[fh + 2])) / scale
         val ratio = faceH.coerceIn(1.4f, 3.0f)
-        return FacePose(origin, right, up, forward, scale, mouth, ratio)
+        // открытость глаз по векам
+        fun eyeGap(topId: Int, botId: Int): Float {
+            if (vertices.size <= maxOf(topId, botId)) return 1f
+            val t = vertices[topId]; val b = vertices[botId]
+            if (t.size < 3 || b.size < 3) return 1f
+            val g = sqrt(sq(t[0]-b[0]) + sq(t[1]-b[1]) + sq(t[2]-b[2])) / scale
+            return ((g - 0.015f) / 0.055f).coerceIn(0f, 1f)
+        }
+        val eyeOpen = (eyeGap(LEFT_EYE_TOP, LEFT_EYE_BOTTOM) + eyeGap(RIGHT_EYE_TOP, RIGHT_EYE_BOTTOM)) * 0.5f
+        // yaw: насколько forward смотрит вбок (проекция на right)
+        val yaw = dot(forward, right).coerceIn(-1f, 1f)
+        return FacePose(origin, right, up, forward, scale, mouth, ratio, eyeOpen, yaw)
     }
 
     /** Все 468 точек в экранных координатах (для «невидимой головы», закрывающей части маски за лицом). */
@@ -171,7 +190,7 @@ class FaceTracker(
             if (mc != null && mo != null && boxCenter != null && meshBoxWidth > 1e-4f) {
                 val k = (boxWidth / meshBoxWidth).coerceIn(0.6f, 1.6f)
                 val o = floatArrayOf(mo[0] + (boxCenter[0] - mc[0]), mo[1] + (boxCenter[1] - mc[1]), mo[2])
-                target = FacePose(o, last.right, last.up, last.forward, meshScale * k, last.mouthOpen, last.faceRatio)
+                target = FacePose(o, last.right, last.up, last.forward, meshScale * k, last.mouthOpen, last.faceRatio, last.eyeOpen, last.yaw)
             } else target = last
         }
         val t = target ?: return pose
@@ -179,12 +198,12 @@ class FaceTracker(
             t.origin[0], t.origin[1], t.origin[2],
             t.right[0], t.right[1], t.right[2],
             t.up[0], t.up[1], t.up[2],
-            t.scale, t.mouthOpen, 0f, 0f,
+            t.scale, t.mouthOpen, t.faceRatio, t.eyeOpen,
         )
         val dt = if (lastT == 0L) 1f / 30f else ((nowMs - lastT) / 1000f).coerceIn(1f / 120f, 0.5f)
         lastT = nowMs
         val out = FloatArray(13)
-        for (i in 0 until 11) {
+        for (i in 0 until 13) {
             if (!hasPrev) { out[i] = raw[i]; dPrev[i] = 0f; continue }
             val dx = (raw[i] - prev[i]) / dt
             val ad = alpha(dt, 1.0f)
@@ -195,7 +214,7 @@ class FaceTracker(
             val cutoff = minCutoff + beta * speed
             out[i] = prev[i] + alpha(dt, cutoff) * (raw[i] - prev[i])
         }
-        for (i in 0 until 11) prev[i] = out[i]
+        for (i in 0 until 13) prev[i] = out[i]
         hasPrev = true
         val right = floatArrayOf(out[3], out[4], out[5]); FaceTransform.norm(right)
         val up = floatArrayOf(out[6], out[7], out[8])
@@ -204,7 +223,7 @@ class FaceTracker(
         FaceTransform.norm(up)
         // forward = right × up (правая тройка: вправо, вверх, к камере)
         val fwd = FaceTransform.cross(right, up)
-        pose = FacePose(floatArrayOf(out[0], out[1], out[2]), right, up, fwd, out[9], out[10], t.faceRatio)
+        pose = FacePose(floatArrayOf(out[0], out[1], out[2]), right, up, fwd, out[9], out[10], out[11], out[12], t.yaw)
         return pose
     }
 
