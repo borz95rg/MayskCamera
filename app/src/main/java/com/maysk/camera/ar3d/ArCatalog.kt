@@ -2,22 +2,44 @@ package com.maysk.camera.ar3d
 
 import android.content.Context
 
-/** Каталог 3D-масок из assets/ar_models/catalog.json (генерируется tools/ar_models/generate_models.py). */
-/** Запись каталога 3D-масок. */
-data class ArCatalogEntry(val id: String, val title: String, val category: String, val file: String, val preview: String, val triangles: Int)
+/**
+ * Каталог 3D-масок (assets/ar_models). Сборка GLB и previews — tools/generate_models.py).
+ */
+/** Запись каталога 3D-масок. [anim] — стиль процедурной анимации (breath/bob/...). */
+data class ArCatalogEntry(
+    val id: String,
+    val title: String,
+    val category: String,
+    val file: String,
+    val preview: String,
+    val triangles: Int,
+    val anim: String = "breath",
+)
 
 /** Разбор catalog.json без Android-зависимостей (проверяется JVM-тестами). */
 object ArCatalogData {
     fun parse(text: String): List<ArCatalogEntry> = MiniJson.parse(text).list().map { e ->
         val o = e.obj()
-        ArCatalogEntry(o["id"] as String, o["title"] as? String ?: "", o["category"] as? String ?: "", o["file"] as String, o["preview"] as? String ?: "", o["triangles"].int())
+        ArCatalogEntry(
+            o["id"] as String,
+            o["title"] as? String ?: "",
+            o["category"] as? String ?: "",
+            o["file"] as String,
+            o["preview"] as? String ?: "",
+            o["triangles"].int(),
+            o["anim"] as? String ?: "breath",
+        )
     }
 }
 
 object ArCatalog {
 
     /** Порядок категорий в каталоге. «Новые» и «Избранное» — служебные. */
-    val categories = listOf("Новые", "Избранное", "Кошки", "Собаки", "Животные", "Дикие животные", "Очки", "Короны и головные уборы", "Фантазия")
+    val categories = listOf(
+        "Новые", "Избранное", "Анимация",
+        "Кошки", "Собаки", "Животные", "Дикие животные",
+        "Очки", "Короны и головные уборы", "Фантазия",
+    )
 
     @Volatile private var cache: List<ArCatalogEntry>? = null
     private val models = HashMap<String, GlbModel>()
@@ -38,17 +60,20 @@ object ArCatalog {
         }
     }
 
-    /** Загрузка модели (кэшируется). Вызывать не в UI-потоке. */
+    fun entry(ctx: Context, id: String): ArCatalogEntry? = entries(ctx).firstOrNull { it.id == id }
+
+    /** Загрузка модели (кэшируется). Один GLB может быть у нескольких id (аним-варианты). */
     fun load(ctx: Context, id: String): GlbModel? = synchronized(models) {
-        models[id] ?: run {
-            val e = entries(ctx).firstOrNull { it.id == id } ?: return null
+        val e = entries(ctx).firstOrNull { it.id == id } ?: return null
+        models[e.file] ?: run {
             val bytes = ctx.assets.open(e.file).use { it.readBytes() }
-            GlbLoader.parse(bytes).also { models[id] = it }
+            GlbLoader.parse(bytes).also { models[e.file] = it }
         }
     }
 
     private const val PREFS = "ar_favorites"
-    fun favorites(ctx: Context): Set<String> = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getStringSet("ids", emptySet()) ?: emptySet()
+    fun favorites(ctx: Context): Set<String> =
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getStringSet("ids", emptySet()) ?: emptySet()
     fun toggleFavorite(ctx: Context, id: String) {
         val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val s = (p.getStringSet("ids", emptySet()) ?: emptySet()).toMutableSet()

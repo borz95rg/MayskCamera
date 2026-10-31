@@ -5,7 +5,8 @@
   "category": "Кошки",
   "file": "ar_models/cat.glb",
   "preview": "ar_models/previews/cat.jpg",
-  "triangles": 732
+  "triangles": 732,
+  "anim": "ear_flap"
  },
  {
   "id": "dog",
@@ -13,7 +14,8 @@
   "category": "Собаки",
   "file": "ar_models/dog.glb",
   "preview": "ar_models/previews/dog.jpg",
-  "triangles": 2160
+  "triangles": 2160,
+  "anim": "ear_flap"
  },
  {
   "id": "bunny",
@@ -21,7 +23,8 @@
   "category": "Животные",
   "file": "ar_models/bunny.glb",
   "preview": "ar_models/previews/bunny.jpg",
-  "triangles": 2184
+  "triangles": 2184,
+  "anim": "ear_flap"
  },
  {
   "id": "fox",
@@ -29,7 +32,8 @@
   "category": "Дикие животные",
   "file": "ar_models/fox.glb",
   "preview": "ar_models/previews/fox.jpg",
-  "triangles": 720
+  "triangles": 720,
+  "anim": "ear_flap"
  },
  {
   "id": "panda",
@@ -37,7 +41,8 @@
   "category": "Животные",
   "file": "ar_models/panda.glb",
   "preview": "ar_models/previews/panda.jpg",
-  "triangles": 2160
+  "triangles": 2160,
+  "anim": "ear_flap"
  },
  {
   "id": "tiger",
@@ -45,7 +50,8 @@
   "category": "Дикие животные",
   "file": "ar_models/tiger.glb",
   "preview": "ar_models/previews/tiger.jpg",
-  "triangles": 684
+  "triangles": 684,
+  "anim": "ear_flap"
  },
  {
   "id": "bear",
@@ -53,7 +59,8 @@
   "category": "Дикие животные",
   "file": "ar_models/bear.glb",
   "preview": "ar_models/previews/bear.jpg",
-  "triangles": 2592
+  "triangles": 2592,
+  "anim": "ear_flap"
  },
  {
   "id": "wolf",
@@ -61,7 +68,8 @@
   "category": "Дикие животные",
   "file": "ar_models/wolf.glb",
   "preview": "ar_models/previews/wolf.jpg",
-  "triangles": 648
+  "triangles": 648,
+  "anim": "ear_flap"
  },
  {
   "id": "lion",
@@ -69,7 +77,8 @@
   "category": "Дикие животные",
   "file": "ar_models/lion.glb",
   "preview": "ar_models/previews/lion.jpg",
-  "triangles": 2196
+  "triangles": 2196,
+  "anim": "ear_flap"
  },
  {
   "id": "deer",
@@ -77,7 +86,8 @@
   "category": "Дикие животные",
   "file": "ar_models/deer.glb",
   "preview": "ar_models/previews/deer.jpg",
-  "triangles": 3132
+  "triangles": 3132,
+  "anim": "ear_flap"
  },
  {
   "id": "raccoon",
@@ -85,7 +95,8 @@
   "category": "Дикие животные",
   "file": "ar_models/raccoon.glb",
   "preview": "ar_models/previews/raccoon.jpg",
-  "triangles": 1136
+  "triangles": 1136,
+  "anim": "ear_flap"
  },
  {
   "id": "owl",
@@ -93,7 +104,8 @@
   "category": "Животные",
   "file": "ar_models/owl.glb",
   "preview": "ar_models/previews/owl.jpg",
-  "triangles": 1934
+  "triangles": 1934,
+  "anim": "blink"
  },
  {
   "id": "glasses",
@@ -101,7 +113,8 @@
   "category": "Очки",
   "file": "ar_models/glasses.glb",
   "preview": "ar_models/previews/glasses.jpg",
-  "triangles": 2088
+  "triangles": 2088,
+  "anim": "bob"
  },
  {
   "id": "crown",
@@ -109,7 +122,8 @@
   "category": "Короны и головные уборы",
   "file": "ar_models/crown.glb",
   "preview": "ar_models/previews/crown.jpg",
-  "triangles": 2860
+  "triangles": 2860,
+  "anim": "bob"
  },
  {
   "id": "fantasy_mask",
@@ -117,6 +131,97 @@
   "category": "Фантазия",
   "file": "ar_models/fantasy_mask.glb",
   "preview": "ar_models/previews/fantasy_mask.jpg",
-  "triangles": 2944
+  "triangles": 2944,
+  "anim": "pulse"
+ },
+ {
+  "id": "cat_pulse",
+  "title": "Кошка (пульс)",
+  "category": "Анимация",
+  "file": "ar_models/cat.glb",
+  "preview": "ar_models/previews/cat.jpg",
+  "triangles": 732,
+  "anim": "pulse"
+ },
+ {
+  "id": "cat_spin",
+  "title": "Кошка (вращение)",
+  "category": "Анимация",
+  "file": "ar_models/cat.glb",
+  "preview": "ar_models/previews/cat.jpg",
+  "triangles": 732,
+  "anim": "spin"
+ },
+ {
+  "id": "crown_pulse",
+  "title": "Корона (сияние)",
+  "category": "Анимация",
+  "file": "ar_models/crown.glb",
+  "preview": "ar_models/previews/crown.jpg",
+  "triangles": 2860,
+  "anim": "pulse"
+ },
+ {
+  "id": "bunny_bob",
+  "title": "Зайка (прыжок)",
+  "category": "Анимация",
+  "file": "ar_models/bunny.glb",
+  "preview": "ar_models/previews/bunny.jpg",
+  "triangles": 2184,
+  "anim": "bob"
+ },
+ {
+  "id": "fox_sway",
+  "title": "Лиса (качание)",
+  "category": "Анимация",
+  "file": "ar_models/fox.glb",
+  "preview": "ar_models/previews/fox.jpg",
+  "triangles": 720,
+  "anim": "sway"
+ },
+ {
+  "id": "dog_mouth",
+  "title": "Щенок (рот)",
+  "category": "Анимация",
+  "file": "ar_models/dog.glb",
+  "preview": "ar_models/previews/dog.jpg",
+  "triangles": 2160,
+  "anim": "mouth"
+ },
+ {
+  "id": "lion_roar",
+  "title": "Лев (рык)",
+  "category": "Анимация",
+  "file": "ar_models/lion.glb",
+  "preview": "ar_models/previews/lion.jpg",
+  "triangles": 2196,
+  "anim": "mouth"
+ },
+ {
+  "id": "deer_sway",
+  "title": "Олень (рога)",
+  "category": "Анимация",
+  "file": "ar_models/deer.glb",
+  "preview": "ar_models/previews/deer.jpg",
+  "triangles": 3132,
+  "anim": "sway"
+ },
+ {
+  "id": "owl_blink",
+  "title": "Сова (моргание)",
+  "category": "Анимация",
+  "file": "ar_models/owl.glb",
+  "preview": "ar_models/previews/owl.jpg",
+  "triangles": 1934,
+  "anim": "blink"
+ },
+ {
+  "id": "fantasy_spin",
+  "title": "Маскарад (спин)",
+  "category": "Анимация",
+  "file": "ar_models/fantasy_mask.glb",
+  "preview": "ar_models/previews/fantasy_mask.jpg",
+  "triangles": 2944,
+  "anim": "spin"
  }
 ]

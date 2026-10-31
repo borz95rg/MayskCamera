@@ -143,16 +143,25 @@ class ArRenderer {
             GLES20.glColorMask(true, true, true, true)
         }
 
-        // 2) Модель
-        val m = f.pose.matrix()
+        // 2) Модель + процедурная анимация
+        val tSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
+        val baseM = f.pose.matrix()
+        val animSt = if (model != null) ModelAnim.evaluate(f.modelId, tSec, f.pose) else ModelAnim.State()
+        val m = if (model != null) ModelAnim.applyToPoseMatrix(baseM, animSt) else baseM
         val parts = if (model != null) gpuParts else emptyList()
         for (k in 0 until 3) { rot[k] = f.pose.right[k]; rot[3 + k] = f.pose.up[k]; rot[6 + k] = f.pose.forward[k] }
         GLES20.glUniformMatrix4fv(uModel, 1, false, m, 0)
         GLES20.glUniformMatrix3fv(uRot, 1, false, rot, 0)
         GLES20.glUniform1f(uBias, 0f)
         GLES20.glUniform1f(uColorOn, 1f)
+        GLES20.glUniform1f(uFade, animSt.fade)
         for (gp in parts) {
-            if (gp.showWhen == "mouthOpen" && f.pose.mouthOpen < 0.35f) continue
+            when (gp.showWhen) {
+                "mouthOpen" -> if (f.pose.mouthOpen < 0.35f) continue
+                "mouthClosed" -> if (f.pose.mouthOpen > 0.25f) continue
+                "eyeOpen" -> if (f.pose.eyeOpen < 0.4f) continue
+                "eyeClosed" -> if (f.pose.eyeOpen > 0.35f) continue
+            }
             if (gp.blend) {
                 GLES20.glEnable(GLES20.GL_BLEND)
                 GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
@@ -164,6 +173,7 @@ class ArRenderer {
                 GLES20.glDepthMask(true)
             }
         }
+        GLES20.glUniform1f(uFade, 1f)
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
         GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0)
