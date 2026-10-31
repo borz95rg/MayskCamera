@@ -15,7 +15,8 @@
      ],
      "w": 1.48,
      "align": "bottom",
-     "aspect": 0.53333
+     "aspect": 0.53333,
+     "anchor": "forehead"
     },
     {
      "png": "effects/face/cat_1.png",
@@ -26,7 +27,8 @@
      ],
      "w": 1.75,
      "align": "center",
-     "aspect": 0.26087
+     "aspect": 0.26087,
+     "anchor": "nose"
     }
    ]
   },
@@ -45,7 +47,8 @@
      ],
      "w": 1.65,
      "align": "bottom",
-     "aspect": 0.46667
+     "aspect": 0.46667,
+     "anchor": "forehead"
     },
     {
      "png": "effects/face/puppy_1.png",
@@ -56,7 +59,8 @@
      ],
      "w": 0.62,
      "align": "center",
-     "aspect": 0.86667
+     "aspect": 0.86667,
+     "anchor": "nose"
     }
    ]
   },
@@ -75,7 +79,8 @@
      ],
      "w": 1.18,
      "align": "bottom",
-     "aspect": 0.76316
+     "aspect": 0.76316,
+     "anchor": "forehead"
     },
     {
      "png": "effects/face/bunny_1.png",
@@ -86,7 +91,8 @@
      ],
      "w": 0.26,
      "align": "center",
-     "aspect": 0.88889
+     "aspect": 0.88889,
+     "anchor": "nose"
     }
    ]
   },
@@ -105,7 +111,8 @@
      ],
      "w": 1.48,
      "align": "bottom",
-     "aspect": 0.51163
+     "aspect": 0.51163,
+     "anchor": "forehead"
     },
     {
      "png": "effects/face/fox_1.png",
@@ -116,7 +123,8 @@
      ],
      "w": 0.72,
      "align": "center",
-     "aspect": 0.78947
+     "aspect": 0.78947,
+     "anchor": "nose"
     }
    ]
   },
@@ -135,7 +143,132 @@
      ],
      "w": 2.05,
      "align": "center",
-     "aspect": 1.0
+     "aspect": 1.0,
+     "anchor": "center"
+    }
+   ]
+  },
+  {
+   "id": "tiger",
+   "title": "Тигр",
+   "category": "Животные",
+   "thumb": "effects/thumbs/cat.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/tiger_0.png",
+     "at": [
+      0,
+      1.05,
+      -0.2
+     ],
+     "w": 1.5,
+     "align": "bottom",
+     "aspect": 0.51163,
+     "anchor": "forehead"
+    },
+    {
+     "png": "effects/face/tiger_1.png",
+     "at": [
+      0,
+      -0.58,
+      0.4
+     ],
+     "w": 0.7,
+     "align": "center",
+     "aspect": 0.77778,
+     "anchor": "nose"
+    }
+   ]
+  },
+  {
+   "id": "wolf",
+   "title": "Волк",
+   "category": "Животные",
+   "thumb": "effects/thumbs/fox.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/wolf_0.png",
+     "at": [
+      0,
+      1.08,
+      -0.22
+     ],
+     "w": 1.5,
+     "align": "bottom",
+     "aspect": 0.53488,
+     "anchor": "forehead"
+    },
+    {
+     "png": "effects/face/wolf_1.png",
+     "at": [
+      0,
+      -0.58,
+      0.4
+     ],
+     "w": 0.68,
+     "align": "center",
+     "aspect": 0.76471,
+     "anchor": "nose"
+    }
+   ]
+  },
+  {
+   "id": "raccoon",
+   "title": "Енот",
+   "category": "Животные",
+   "thumb": "effects/thumbs/panda.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/raccoon_0.png",
+     "at": [
+      0,
+      0.15,
+      0.22
+     ],
+     "w": 1.95,
+     "align": "center",
+     "aspect": 0.72222,
+     "anchor": "center"
+    }
+   ]
+  },
+  {
+   "id": "deer",
+   "title": "Олень",
+   "category": "Животные",
+   "thumb": "effects/thumbs/crown.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/deer_0.png",
+     "at": [
+      0,
+      1.15,
+      -0.28
+     ],
+     "w": 1.55,
+     "align": "bottom",
+     "aspect": 0.6,
+     "anchor": "forehead"
+    }
+   ]
+  },
+  {
+   "id": "unicorn",
+   "title": "Единорог",
+   "category": "Животные",
+   "thumb": "effects/thumbs/crown.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/unicorn_0.png",
+     "at": [
+      0,
+      1.1,
+      -0.28
+     ],
+     "w": 1.4,
+     "align": "bottom",
+     "aspect": 0.74286,
+     "anchor": "forehead"
     }
    ]
   },
@@ -154,7 +287,8 @@
      ],
      "w": 1.55,
      "align": "bottom",
-     "aspect": 0.45946
+     "aspect": 0.45946,
+     "anchor": "forehead"
     }
    ]
   },
@@ -173,7 +307,8 @@
      ],
      "w": 1.45,
      "align": "bottom",
-     "aspect": 0.52778
+     "aspect": 0.52778,
+     "anchor": "forehead"
     }
    ]
   },
@@ -192,7 +327,8 @@
      ],
      "w": 1.65,
      "align": "center",
-     "aspect": 0.40541
+     "aspect": 0.40541,
+     "anchor": "eyes"
     }
    ]
   },
@@ -210,8 +346,9 @@
       -0.35
      ],
      "w": 1.8,
-     "align": "center",
-     "aspect": 0.34375
+     "align": "bottom",
+     "aspect": 0.34375,
+     "anchor": "forehead"
     }
    ]
   },
@@ -225,12 +362,13 @@
      "png": "effects/face/flower_0.png",
      "at": [
       0,
-      0.98,
-      -0.2
+      1.05,
+      -0.28
      ],
-     "w": 1.7046,
+     "w": 1.6,
      "align": "bottom",
-     "aspect": 0.39474
+     "aspect": 0.39474,
+     "anchor": "forehead"
     }
    ]
   },
@@ -244,12 +382,13 @@
      "png": "effects/face/fire_0.png",
      "at": [
       0,
-      1.0,
+      1.05,
       -0.25
      ],
-     "w": 1.6068,
+     "w": 1.5,
      "align": "bottom",
-     "aspect": 0.52778
+     "aspect": 0.52778,
+     "anchor": "forehead"
     }
    ]
   },
@@ -263,12 +402,13 @@
      "png": "effects/face/ice_0.png",
      "at": [
       0,
-      0.72,
-      0.25
+      1.0,
+      -0.25
      ],
-     "w": 0.5382,
-     "align": "center",
-     "aspect": 0.65625
+     "w": 1.4,
+     "align": "bottom",
+     "aspect": 0.65625,
+     "anchor": "forehead"
     }
    ]
   },
@@ -282,31 +422,53 @@
      "png": "effects/face/visor_0.png",
      "at": [
       0,
-      0.0,
-      0.32
+      0.08,
+      0.18
      ],
-     "w": 1.858,
+     "w": 1.7,
      "align": "center",
-     "aspect": 0.31579
+     "aspect": 0.31579,
+     "anchor": "eyes"
     }
    ]
   },
   {
-   "id": "hearts",
-   "title": "Сердечки",
-   "category": "Украшения",
-   "thumb": "effects/thumbs/hearts.jpg",
+   "id": "cyber",
+   "title": "Киберпанк",
+   "category": "3D-эффекты",
+   "thumb": "effects/thumbs/visor.jpg",
    "pieces": [
     {
-     "png": "effects/face/hearts_0.png",
+     "png": "effects/face/cyber_0.png",
      "at": [
-      0.95,
-      0.85,
-      0.0
+      0,
+      0.05,
+      0.2
      ],
-     "w": 0.9135,
+     "w": 1.7,
      "align": "center",
-     "aspect": 0.72222
+     "aspect": 0.57143,
+     "anchor": "center"
+    }
+   ]
+  },
+  {
+   "id": "rainbow",
+   "title": "Радуга",
+   "category": "3D-эффекты",
+   "thumb": "effects/thumbs/halo.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/rainbow_0.png",
+     "at": [
+      0,
+      1.2,
+      -0.35
+     ],
+     "w": 1.9,
+     "align": "bottom",
+     "aspect": 0.45,
+     "anchor": "forehead"
     }
    ]
   },
@@ -319,13 +481,34 @@
     {
      "png": "effects/face/butterfly_0.png",
      "at": [
-      0.55,
-      1.05,
-      -0.1
+      0,
+      1.0,
+      -0.25
      ],
-     "w": 0.8627,
+     "w": 1.3,
+     "align": "bottom",
+     "aspect": 0.65625,
+     "anchor": "forehead"
+    }
+   ]
+  },
+  {
+   "id": "hearts",
+   "title": "Сердечки",
+   "category": "Украшения",
+   "thumb": "effects/thumbs/hearts.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/hearts_0.png",
+     "at": [
+      0,
+      0.2,
+      0.25
+     ],
+     "w": 1.7,
      "align": "center",
-     "aspect": 0.65625
+     "aspect": 0.72222,
+     "anchor": "center"
     }
    ]
   },
@@ -339,12 +522,53 @@
      "png": "effects/face/sparkles_0.png",
      "at": [
       0,
-      0.95,
-      -0.1
+      0.1,
+      0.22
      ],
-     "w": 2.2276,
+     "w": 1.8,
      "align": "center",
-     "aspect": 1.0
+     "aspect": 1.0,
+     "anchor": "center"
+    }
+   ]
+  },
+  {
+   "id": "stars",
+   "title": "Звёздочки",
+   "category": "Украшения",
+   "thumb": "effects/thumbs/sparkles.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/stars_0.png",
+     "at": [
+      0,
+      0.1,
+      0.22
+     ],
+     "w": 1.6,
+     "align": "center",
+     "aspect": 0.66667,
+     "anchor": "center"
+    }
+   ]
+  },
+  {
+   "id": "heart_eyes",
+   "title": "Глаза-сердца",
+   "category": "Украшения",
+   "thumb": "effects/thumbs/hearts.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/heart_eyes_0.png",
+     "at": [
+      0,
+      0.05,
+      0.18
+     ],
+     "w": 1.55,
+     "align": "center",
+     "aspect": 0.4,
+     "anchor": "eyes"
     }
    ]
   },
@@ -358,12 +582,13 @@
      "png": "effects/face/freckles_0.png",
      "at": [
       0,
-      -0.3,
-      0.36
+      -0.25,
+      0.3
      ],
-     "w": 0.8829,
+     "w": 1.3,
      "align": "center",
-     "aspect": 0.38462
+     "aspect": 0.38462,
+     "anchor": "nose"
     }
    ]
   },
@@ -382,7 +607,8 @@
      ],
      "w": 1.45,
      "align": "center",
-     "aspect": 0.30556
+     "aspect": 0.30556,
+     "anchor": "cheeks"
     }
    ]
   },
@@ -401,7 +627,8 @@
      ],
      "w": 1.48,
      "align": "center",
-     "aspect": 0.20513
+     "aspect": 0.20513,
+     "anchor": "eyes"
     }
    ]
   },
@@ -415,12 +642,13 @@
      "png": "effects/face/lipgloss_0.png",
      "at": [
       0,
-      -0.95,
+      -0.72,
       0.4
      ],
-     "w": 0.6335,
+     "w": 0.55,
      "align": "center",
-     "aspect": 0.38235
+     "aspect": 0.38235,
+     "anchor": "mouth"
     }
    ]
   },
@@ -439,7 +667,68 @@
      ],
      "w": 1.35,
      "align": "center",
-     "aspect": 0.35294
+     "aspect": 0.35294,
+     "anchor": "cheeks"
+    }
+   ]
+  },
+  {
+   "id": "glam",
+   "title": "Вечерний макияж",
+   "category": "Макияж",
+   "thumb": "effects/thumbs/liner.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/glam_0.png",
+     "at": [
+      0,
+      0.08,
+      0.14
+     ],
+     "w": 1.55,
+     "align": "center",
+     "aspect": 0.25641,
+     "anchor": "eyes"
+    }
+   ]
+  },
+  {
+   "id": "mustache",
+   "title": "Усы",
+   "category": "Макияж",
+   "thumb": "effects/thumbs/none.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/mustache_0.png",
+     "at": [
+      0,
+      -0.55,
+      0.38
+     ],
+     "w": 0.95,
+     "align": "center",
+     "aspect": 0.33333,
+     "anchor": "mouth"
+    }
+   ]
+  },
+  {
+   "id": "nose_blush",
+   "title": "Румянец на носу",
+   "category": "Макияж",
+   "thumb": "effects/thumbs/blush.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/nose_blush_0.png",
+     "at": [
+      0,
+      -0.35,
+      0.35
+     ],
+     "w": 0.7,
+     "align": "center",
+     "aspect": 0.42857,
+     "anchor": "nose"
     }
    ]
   }

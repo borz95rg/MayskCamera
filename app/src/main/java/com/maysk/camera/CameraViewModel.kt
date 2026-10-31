@@ -434,7 +434,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setEffectAlpha(a: Float) {
         _ui.update { it.copy(effectAlpha = a) }
-        tplSprites = tplSprites.map { com.maysk.camera.ar3d.Sprite(it.key, it.bitmap, it.at, it.width, it.aspect, it.bottomAligned, a) }
+        tplSprites = tplSprites.map { com.maysk.camera.ar3d.Sprite(it.key, it.bitmap, it.at, it.width, it.aspect, it.bottomAligned, a, it.anchor) }
         if (_ui.value.filterId != "original") setFilterIntensity(a)
     }
 
@@ -535,7 +535,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         val breath = com.maysk.camera.ar3d.FaceAnim.breathScale(tSec)
         val livePose = com.maysk.camera.ar3d.FacePose(
             pose.origin, pose.right, pose.up, pose.forward,
-            pose.scale * breath, pose.mouthOpen,
+            pose.scale * breath, pose.mouthOpen, pose.faceRatio,
         )
         // «невидимую голову» переносим из позы сетки в текущую сглаженную позу
         val mp = lastMeshPose

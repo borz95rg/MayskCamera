@@ -214,13 +214,26 @@ class ArRenderer {
         GLES20.glUniform1i(suTex, 7)
         // время для дыхания / моргания (секунды)
         val tSec = (System.nanoTime() / 1_000_000_000.0).toFloat()
+        // faceRatio: взрослый ~2.1, ребёнок ~1.7 → масштабируем вертикальные якоря
+        val ratio = f.pose.faceRatio.coerceIn(1.4f, 3.0f)
+        val yScale = (ratio / 2.1f).coerceIn(0.75f, 1.25f)
         for (s in f.sprites) {
             if (s.alpha <= 0.01f) continue
             val (sx, sy, aMul) = FaceAnim.spriteAnim(s.key, tSec)
             val lift = FaceAnim.topLift(s.key, tSec)
+            // авто-выравнивание: якорь forehead/eyes/mouth тянется пропорционально высоте лица
+            val baseY = s.at[1]
+            val adaptY = when (s.anchor) {
+                "forehead" -> baseY * yScale           // уши/корона выше на вытянутом овале
+                "eyes"     -> baseY * (0.5f + 0.5f * yScale)
+                "nose"     -> baseY * (0.7f + 0.3f * yScale)
+                "mouth"    -> baseY * yScale           // губы/усы ниже на длинном лице
+                "cheeks"   -> baseY * (0.8f + 0.2f * yScale)
+                else       -> baseY
+            }
             val hw = s.width * sx / 2
             val h = s.width * s.aspect * sy
-            val cy = (if (s.bottomAligned) s.at[1] + h / 2 else s.at[1]) + lift
+            val cy = (if (s.bottomAligned) adaptY + h / 2 else adaptY) + lift
             val x = s.at[0]; val z = s.at.getOrElse(2) { 0f }
             // 4 вершины: позиция в лицевых единицах (xyz) + UV
             val v = floatArrayOf(

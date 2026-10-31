@@ -61,14 +61,15 @@ object FaceAnim {
         val k = key.lowercase()
         return when {
             k.contains("liner") || k.contains("glasses") || k.contains("visor") ||
-            k.contains("freckles") && false -> Role.EYE
-            k.contains("liner") || k.contains("glasses") || k.contains("visor") -> Role.EYE
+            k.contains("glam") || k.contains("heart_eyes") -> Role.EYE
             k.contains("cat_0") || k.contains("fox_0") || k.contains("bunny_0") ||
-            k.contains("puppy_0") || k.contains("crown") || k.contains("halo") ||
-            k.contains("devil") || k.contains("fire") || k.contains("flower") ||
-            k.contains("ice") || k.contains("sparkles") || k.contains("butterfly") ||
-            k.contains("hearts_0") -> Role.TOP
-            k.contains("blush") || k.contains("hearts_cheeks") || k.contains("freckles") -> Role.CHEEK
+            k.contains("puppy_0") || k.contains("tiger_0") || k.contains("wolf_0") ||
+            k.contains("deer") || k.contains("unicorn") || k.contains("crown") ||
+            k.contains("halo") || k.contains("devil") || k.contains("fire") ||
+            k.contains("flower") || k.contains("ice") || k.contains("rainbow") ||
+            k.contains("butterfly") || k.contains("sparkles") || k.contains("hearts_0") -> Role.TOP
+            k.contains("blush") || k.contains("hearts_cheeks") || k.contains("freckles") ||
+            k.contains("nose_blush") -> Role.CHEEK
             else -> Role.OTHER
         }
     }
