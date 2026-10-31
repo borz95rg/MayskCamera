@@ -79,7 +79,7 @@ object Vision {
         )
     }
     private val faceMeshDetector: FaceMeshDetector by lazy {
-        FaceMeshDetection.getClient(FaceMeshDetectorOptions.DEFAULT_OPTIONS)
+        FaceMeshDetection.getClient()
     }
     private val labeler by lazy { ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.55f).build()) }
     private val segmenter by lazy {
@@ -132,7 +132,11 @@ object Vision {
                     )
                 }
                 val triangles = mesh.allTriangles.map { triangle ->
-                    triangle.allPoints().map { it.index }.toIntArray()
+                    // ML Kit returns the three FaceMeshPoint objects for each triangle.
+                    // Resolve their stable vertex positions against this mesh's allPoints list.
+                    triangle.allPoints().map { trianglePoint ->
+                        points.indexOf(trianglePoint)
+                    }.toIntArray()
                 }
                 FaceMeshInfo(vertices, triangles)
             }
