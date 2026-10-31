@@ -236,7 +236,7 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
         busy = "Сохранение…"
         scope.launch {
             val out = withContext(Dispatchers.Default) {
-                var r = ImageOps.crop(b, cropRect(r.width, r.height, cropOptions[adj.crop].second))
+                var r = ImageOps.crop(b, cropRect(b.width, b.height, cropOptions[adj.crop].second))
                 r = ImageOps.localToneMap(r, adj.shadows, adj.highlights, 0.2f)
                 if (adj.detail > 0f) r = ImageOps.sharpen(r, adj.detail * 1.5f)
                 r = ImageOps.colorMatrix(r, adj.matrix())
