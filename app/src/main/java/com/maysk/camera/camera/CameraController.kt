@@ -404,10 +404,10 @@ class CameraController(private val context: Context) {
     /** Собирает все Camera2-параметры запроса в одном месте. */
     @Volatile var aeAwbLock = false
 
-    fun setAeAwbLock(on: Boolean) { aeAwbLock = on; applyRequestOptions() }
+    fun updateAeAwbLock(on: Boolean) { aeAwbLock = on; applyRequestOptions() }
 
     @Volatile var awbLock = false
-    fun setAwbLock(on: Boolean) { if (awbLock != on) { awbLock = on; applyRequestOptions() } }
+    fun updateAwbLock(on: Boolean) { if (awbLock != on) { awbLock = on; applyRequestOptions() } }
 
     fun applyRequestOptions(m: ManualSettings = manual) {
         manual = m

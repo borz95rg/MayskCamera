@@ -807,10 +807,10 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         if (u.flash == FlashMode.ON) controller.setTorch(true)
         if (settings.value.shutterSound) runCatching { sound.play(MediaActionSound.START_VIDEO_RECORDING) }
         // ночью баланс белого фиксируется на всю запись
-        if (u.nightVideo || controller.lowLight) controller.setAwbLock(true)
+        if (u.nightVideo || controller.lowLight) controller.updateAwbLock(true)
         val ok = controller.startRecording(withAudio) fin@{ uri, err ->
             controller.setTorch(false)
-            controller.setAwbLock(false)
+            controller.updateAwbLock(false)
             if (settings.value.shutterSound) runCatching { sound.play(MediaActionSound.STOP_VIDEO_RECORDING) }
             if (uri == null) { toast(err ?: "Видео не сохранено"); return@fin }
             viewModelScope.launch { postProcessVideo(uri, u.mode, withAudio) }
@@ -907,7 +907,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         val gyroOk = stabilizer.available
         panoHold = true
         if (gyroOk) stabilizer.start()
-        controller.setAeAwbLock(true)
+        controller.updateAeAwbLock(true)
         val tanU = (controller.fovTangents().first / cam.value.zoom.coerceAtLeast(0.3f)).coerceIn(0.15f, 1.5f)
         val fov = 2f * kotlin.math.atan(tanU)
         // следующий кадр — после поворота на ~15–20°, но с перекрытием не меньше ~55%
@@ -975,7 +975,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     if (progress >= 1f) break
                 }
             } finally {
-                controller.setAeAwbLock(false)
+                controller.updateAeAwbLock(false)
                 panoHold = false
                 configureStabilizer()
             }

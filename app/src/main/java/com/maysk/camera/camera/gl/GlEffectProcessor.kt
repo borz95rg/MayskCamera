@@ -92,6 +92,8 @@ class GlEffectProcessor : SurfaceProcessor {
 
     private var surfaceTexture: SurfaceTexture? = null
     private var ovTex = 0
+    /** ID входной OES-текстуры CameraX; нужна временному шумодаву как текущий кадр. */
+    private var cameraOesTex = 0
     private var ovKey: Any? = null
     private val previewM = FloatArray(16)
     private val previewInv = FloatArray(16)
@@ -238,6 +240,7 @@ class GlEffectProcessor : SurfaceProcessor {
         EGL14.eglMakeCurrent(display, pbuffer, pbuffer, context)
         val tex = IntArray(1)
         GLES20.glGenTextures(1, tex, 0)
+        cameraOesTex = tex[0]
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, tex[0])
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
@@ -256,6 +259,7 @@ class GlEffectProcessor : SurfaceProcessor {
             surface.release()
             EGL14.eglMakeCurrent(display, pbuffer, pbuffer, context)
             GLES20.glDeleteTextures(1, tex, 0)
+            if (cameraOesTex == tex[0]) cameraOesTex = 0
             if (surfaceTexture === st) surfaceTexture = null
         }
     }
@@ -450,6 +454,12 @@ class GlEffectProcessor : SurfaceProcessor {
         GLES20.glViewport(0, 0, inputSize.width, inputSize.height)
         GLES20.glUseProgram(progTemporal)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        // Не полагаемся на побочный GL-binding: явно возвращаем текущий кадр CameraX.
+        if (cameraOesTex == 0) {
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+            return 0
+        }
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, cameraOesTex)
         GLES20.glUniform1i(GLES20.glGetUniformLocation(progTemporal, "uCur"), 0)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE4)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex[prev])
