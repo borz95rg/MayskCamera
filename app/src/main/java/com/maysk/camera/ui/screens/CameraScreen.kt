@@ -1101,7 +1101,7 @@ private fun EffectBrowser(
     onFrames: () -> Unit,
     onDraw: () -> Unit,
 ) {
-    val categories = listOf("Все", "Животные", "Макияж", "3D-стили", "Очки", "Фильтры", "Фон", "Рамки", "Рисование")
+    val categories = listOf("Все", "Животные", "Макияж", "3D-стили", "Фантазия", "Очки", "Стикеры", "Фильтры", "Фон", "Анимация", "Рамки", "Рисование")
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Эффекты для фото и видео", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
@@ -1115,10 +1115,19 @@ private fun EffectBrowser(
         when (category) {
             "Все", "Животные", "Макияж", "3D-стили", "Очки" -> {
                 val masks = when (category) {
-                    "Животные" -> listOf(com.maysk.camera.camera.ArMask.CAT, com.maysk.camera.camera.ArMask.DOG, com.maysk.camera.camera.ArMask.BUNNY, com.maysk.camera.camera.ArMask.FOX, com.maysk.camera.camera.ArMask.PANDA, com.maysk.camera.camera.ArMask.TIGER, com.maysk.camera.camera.ArMask.BEAR)
+                    "Животные" -> listOf(
+                        com.maysk.camera.camera.ArMask.CAT, com.maysk.camera.camera.ArMask.DOG,
+                        com.maysk.camera.camera.ArMask.BUNNY, com.maysk.camera.camera.ArMask.FOX,
+                        com.maysk.camera.camera.ArMask.PANDA, com.maysk.camera.camera.ArMask.TIGER,
+                        com.maysk.camera.camera.ArMask.BEAR, com.maysk.camera.camera.ArMask.WOLF,
+                        com.maysk.camera.camera.ArMask.LION, com.maysk.camera.camera.ArMask.DEER,
+                        com.maysk.camera.camera.ArMask.RACCOON, com.maysk.camera.camera.ArMask.OWL
+                    )
                     "Макияж" -> listOf(com.maysk.camera.camera.ArMask.MAKEUP, com.maysk.camera.camera.ArMask.GLAM_MAKEUP, com.maysk.camera.camera.ArMask.FRECKLES, com.maysk.camera.camera.ArMask.BLUSH)
-                    "3D-стили" -> listOf(com.maysk.camera.camera.ArMask.CYBER, com.maysk.camera.camera.ArMask.ROBOT, com.maysk.camera.camera.ArMask.ASTRONAUT, com.maysk.camera.camera.ArMask.HERO, com.maysk.camera.camera.ArMask.PIRATE, com.maysk.camera.camera.ArMask.DEVIL, com.maysk.camera.camera.ArMask.HALO)
+                    "3D-стили" -> listOf(com.maysk.camera.camera.ArMask.CYBER, com.maysk.camera.camera.ArMask.ROBOT, com.maysk.camera.camera.ArMask.ASTRONAUT, com.maysk.camera.camera.ArMask.HERO, com.maysk.camera.camera.ArMask.PIRATE, com.maysk.camera.camera.ArMask.DEVIL, com.maysk.camera.camera.ArMask.HALO, com.maysk.camera.camera.ArMask.UNICORN, com.maysk.camera.camera.ArMask.DRAGON)
+                    "Фантазия" -> listOf(com.maysk.camera.camera.ArMask.UNICORN, com.maysk.camera.camera.ArMask.DRAGON, com.maysk.camera.camera.ArMask.BUTTERFLY, com.maysk.camera.camera.ArMask.DEER, com.maysk.camera.camera.ArMask.LION, com.maysk.camera.camera.ArMask.CYBER, com.maysk.camera.camera.ArMask.HALO, com.maysk.camera.camera.ArMask.FLOWERS)
                     "Очки" -> listOf(com.maysk.camera.camera.ArMask.SUNGLASSES, com.maysk.camera.camera.ArMask.NEON_GLASSES, com.maysk.camera.camera.ArMask.HEART_EYES)
+                    "Стикеры" -> listOf(com.maysk.camera.camera.ArMask.HEARTS, com.maysk.camera.camera.ArMask.CROWN, com.maysk.camera.camera.ArMask.FLOWERS, com.maysk.camera.camera.ArMask.HALO, com.maysk.camera.camera.ArMask.RAINBOW, com.maysk.camera.camera.ArMask.MUSTACHE)
                     else -> com.maysk.camera.camera.ArMask.entries.filter { it != com.maysk.camera.camera.ArMask.NONE }
                 }
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -1132,7 +1141,7 @@ private fun EffectBrowser(
                     }
                 }
                 if (category == "Макияж") Pill("Настройки Face Beauty", false, onClick = onBeauty)
-                if (category == "3D-стили") Text("Сейчас доступны стилизованные AR-наложения; полноценные 3D-модели и деформация лица ещё не подключены.", color = Color.LightGray, fontSize = 10.sp)
+                if (category == "3D-стили") Text("В этой категории собраны фантазийные AR-стили. Это 2D-наложения, не полноценные объёмные 3D-модели.", color = Color.LightGray, fontSize = 10.sp)
             }
             "Фильтры" -> LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 items(com.maysk.camera.camera.Filters.all.filter { it.id != "original" }, key = { it.id }) { f ->
@@ -1146,6 +1155,16 @@ private fun EffectBrowser(
                 items(listOf(Effect.NONE, Effect.BG_BLUR, Effect.BOKEH, Effect.LIGHT_RAYS, Effect.GLITCH, Effect.FILM, Effect.GRAIN, Effect.RAINBOW, Effect.RAIN, Effect.SNOW, Effect.CONFETTI, Effect.STARS, Effect.LEAVES, Effect.FIREWORKS, Effect.FIRE, Effect.SMOKE)) { e ->
                     Column(Modifier.width(82.dp).clickable { onEffect(e) }, horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(Modifier.size(58.dp).clip(RoundedCornerShape(14.dp)).background(if (currentEffect == e) Accent else Color.White.copy(alpha = 0.10f)), contentAlignment = Alignment.Center) { Text(if (e == Effect.NONE) "✕" else "✧", color = Color.White, fontSize = 24.sp) }
+                        Text(e.title, color = if (currentEffect == e) Color(0xFF7FFFE0) else Color.White, fontSize = 10.sp, maxLines = 2)
+                    }
+                }
+            }
+            "Анимация" -> LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                items(listOf(Effect.RAINBOW, Effect.RAIN, Effect.SNOW, Effect.CONFETTI, Effect.STARS, Effect.LEAVES, Effect.FIREWORKS, Effect.FIRE, Effect.SMOKE, Effect.GLITCH, Effect.LIGHT_RAYS, Effect.BOKEH)) { e ->
+                    Column(Modifier.width(76.dp).clickable { onEffect(e) }, horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.size(58.dp).clip(RoundedCornerShape(15.dp)).background(if (currentEffect == e) Accent else Color.White.copy(alpha = 0.10f)), contentAlignment = Alignment.Center) {
+                            Text(when(e) { Effect.RAIN -> "🌧"; Effect.SNOW -> "❄️"; Effect.CONFETTI -> "🎉"; Effect.STARS -> "✨"; Effect.LEAVES -> "🍃"; Effect.FIREWORKS -> "🎆"; Effect.FIRE -> "🔥"; Effect.SMOKE -> "☁️"; Effect.RAINBOW -> "🌈"; Effect.GLITCH -> "⚡"; Effect.LIGHT_RAYS -> "☀️"; else -> "✦" }, fontSize = 23.sp)
+                        }
                         Text(e.title, color = if (currentEffect == e) Color(0xFF7FFFE0) else Color.White, fontSize = 10.sp, maxLines = 2)
                     }
                 }

@@ -46,6 +46,14 @@ enum class ArMask(val title: String, val emoji: String) {
     BEAR("Медвежонок", "🐻"),
     GLAM_MAKEUP("Вечерний макияж", "💋"),
     FRECKLES("Веснушки", "✨"),
+    WOLF("Волк", "🐺"),
+    LION("Лев", "🦁"),
+    DEER("Олень", "🦌"),
+    RACCOON("Енот", "🦝"),
+    UNICORN("Единорог", "🦄"),
+    DRAGON("Дракон", "🐉"),
+    OWL("Сова", "🦉"),
+    BUTTERFLY("Бабочка", "🦋"),
 }
 
 object ArMasks {
@@ -122,7 +130,7 @@ object ArMasks {
                 }
                 c.drawLine(-d * 0.14f, -d * 0.05f, d * 0.14f, -d * 0.05f, line)
             }
-            ArMask.CAT, ArMask.DOG, ArMask.BUNNY, ArMask.PANDA, ArMask.TIGER, ArMask.BEAR -> animal(c, m, d, top)
+            ArMask.CAT, ArMask.DOG, ArMask.BUNNY, ArMask.PANDA, ArMask.TIGER, ArMask.BEAR, ArMask.WOLF, ArMask.LION, ArMask.DEER, ArMask.RACCOON, ArMask.UNICORN, ArMask.DRAGON, ArMask.OWL, ArMask.BUTTERFLY -> animal(c, m, d, top)
             ArMask.CROWN -> {
                 val gold = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     shader = LinearGradient(0f, top - d * 0.9f, 0f, top, Color.parseColor("#FFE082"), Color.parseColor("#C79100"), Shader.TileMode.CLAMP)
@@ -344,6 +352,44 @@ object ArMasks {
                     c.restore()
                 }
                 c.drawCircle(0f, d * 0.78f, d * 0.08f, p(Color.parseColor("#F48FB1")))
+            }
+            ArMask.WOLF, ArMask.LION, ArMask.DEER, ArMask.RACCOON, ArMask.UNICORN, ArMask.DRAGON, ArMask.OWL, ArMask.BUTTERFLY -> {
+                val base = when (m) {
+                    ArMask.WOLF -> Color.parseColor("#90A4AE")
+                    ArMask.LION -> Color.parseColor("#D89B32")
+                    ArMask.DEER -> Color.parseColor("#A66A3F")
+                    ArMask.RACCOON -> Color.parseColor("#616A73")
+                    ArMask.UNICORN -> Color.parseColor("#F2B6D0")
+                    ArMask.DRAGON -> Color.parseColor("#3B9B72")
+                    ArMask.OWL -> Color.parseColor("#A9784F")
+                    else -> Color.parseColor("#8E72D8")
+                }
+                for (sx in listOf(-1f, 1f)) {
+                    val ear = Path().apply {
+                        moveTo(sx*d*0.42f, top+d*0.1f)
+                        lineTo(sx*d*0.82f, top-d*(if (m == ArMask.DEER || m == ArMask.UNICORN) 0.95f else 0.62f))
+                        lineTo(sx*d*1.05f, top+d*0.18f)
+                        close()
+                    }
+                    c.drawPath(ear, p(base))
+                    c.drawCircle(sx*d*0.73f, top+d*0.12f, d*0.12f, p(Color.WHITE.copy(alpha=0.72f)))
+                }
+                if (m == ArMask.DEER) {
+                    for (sx in listOf(-1f, 1f)) {
+                        c.drawLine(sx*d*0.42f, top-d*0.05f, sx*d*0.62f, top-d*0.9f, p(base, Paint.Style.STROKE, d*0.07f))
+                        c.drawLine(sx*d*0.62f, top-d*0.9f, sx*d*0.88f, top-d*1.05f, p(base, Paint.Style.STROKE, d*0.06f))
+                    }
+                }
+                if (m == ArMask.UNICORN) {
+                    val horn = Path().apply { moveTo(-d*0.13f, top); lineTo(0f, top-d*1.0f); lineTo(d*0.13f, top); close() }
+                    c.drawPath(horn, p(Color.parseColor("#FFD54F")))
+                }
+                if (m == ArMask.BUTTERFLY) {
+                    for (sx in listOf(-1f,1f)) {
+                        c.drawOval(RectF(sx*d*0.4f-d*0.2f, top-d*0.35f, sx*d*1.05f+d*0.1f, top+d*0.35f), p(Color.parseColor("#BA68C8")))
+                    }
+                }
+                c.drawOval(RectF(-d*0.18f, d*0.68f, d*0.18f, d*0.88f), p(if (m == ArMask.RACCOON) Color.BLACK else base))
             }
             else -> Unit
         }
