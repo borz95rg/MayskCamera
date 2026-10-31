@@ -16,8 +16,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -162,11 +160,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.atan2
 
-private enum class Panel { NONE, FILTERS, EFFECTS, BEAUTY, PRO, EV, FRAMES, MASKS, SNAP, OVERLAY }
-private enum class BottomToolCategory(val title: String) {
-    MASKS("Маски"), FILTERS("Фильтры"), MAKEUP("Макияж"), THREE_D("3D"), BACKGROUND("Фон"), FRAMES("Рамки"), DRAW("Рисование")
-}
-
+private enum class Panel { NONE, BROWSER, FILTERS, EFFECTS, BEAUTY, PRO, EV, FRAMES, MASKS, SNAP, OVERLAY }
 /** Угол поворота иконок при горизонтальном положении телефона. */
 private val LocalIconRotation = androidx.compose.runtime.compositionLocalOf { 0f }
 
@@ -192,7 +186,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
     val live by vm.live.collectAsState()
     val scope = rememberCoroutineScope()
     var panel by remember { mutableStateOf(Panel.NONE) }
-    var bottomTool by remember { mutableStateOf(BottomToolCategory.MASKS) }
+    var effectCategory by remember { mutableStateOf("Маски") }
     var focusPoint by remember { mutableStateOf<Offset?>(null) }
 
     val previewView = remember {
@@ -377,6 +371,17 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                         }
                 )
             }
+            // Компактная кнопка эффектов справа — не занимает место в обычном режиме.
+            if (!recordingNow) Box(
+                Modifier.align(Alignment.CenterEnd).padding(end = 12.dp)
+                    .size(52.dp).clip(CircleShape)
+                    .background(Brush.linearGradient(listOf(Color(0xFF073D35), Color(0xFF101820))))
+                    .border(1.dp, Color(0xFF39D7B0), CircleShape)
+                    .clickable { panel = if (panel == Panel.BROWSER) Panel.NONE else Panel.BROWSER }
+                    .padding(2.dp), contentAlignment = Alignment.Center
+            ) {
+                Text("✦", color = Color(0xFF7FFFE0), fontSize = 25.sp, fontWeight = FontWeight.Bold)
+            }
             focusPoint?.let { p ->
                 Box(
                     Modifier
@@ -511,6 +516,19 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     when (panel) {
+                        Panel.BROWSER -> EffectBrowser(
+                            category = effectCategory,
+                            onCategory = { effectCategory = it },
+                            currentMask = ui.arMask,
+                            currentFilter = ui.filterId,
+                            currentEffect = ui.effect,
+                            onMask = vm::setArMask,
+                            onFilter = vm::setFilter,
+                            onEffect = vm::setEffect,
+                            onBeauty = { panel = Panel.BEAUTY },
+                            onFrames = { panel = Panel.FRAMES },
+                            onDraw = { vm.setSnapDrawMode(true); panel = Panel.OVERLAY }
+                        )
                         Panel.FILTERS -> FiltersPanel(ui.filterId, ui.filterIntensity, vm.liveThumb.collectAsState().value, vm::setFilter, vm::setFilterIntensity)
                         Panel.EFFECTS -> EffectsPanel(ui.effect, vm::setEffect)
                         Panel.BEAUTY -> BeautyPanel(vm, ui.beautyOn, settings.beautySkin, settings.beautyEyes, settings.beautyFace)
@@ -563,76 +581,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                     items(com.maysk.camera.DualLayout.entries) { l -> Pill(l.title, ui.dualLayout == l) { vm.setDualLayout(l) } }
                 }
             }
-            // Постоянная нижняя панель инструментов: категории всегда видны, эффекты — в карусели ниже.
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 3.dp),
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                BottomToolCategory.entries.forEach { category ->
-                    Pill(category.title, bottomTool == category) {
-                        bottomTool = category
-                        when (category) {
-                            BottomToolCategory.MASKS -> panel = Panel.NONE
-                            BottomToolCategory.FILTERS -> panel = Panel.NONE
-                            BottomToolCategory.MAKEUP -> panel = Panel.NONE
-                            BottomToolCategory.THREE_D -> panel = Panel.NONE
-                            BottomToolCategory.BACKGROUND -> panel = Panel.NONE
-                            BottomToolCategory.FRAMES -> panel = Panel.FRAMES
-                            BottomToolCategory.DRAW -> { vm.setSnapDrawMode(true); panel = Panel.OVERLAY }
-                        }
-                    }
-                }
-            }
-            when (bottomTool) {
-                BottomToolCategory.MASKS -> LazyRow(
-                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(com.maysk.camera.camera.ArMask.entries.filter { it != com.maysk.camera.camera.ArMask.MAKEUP && it != com.maysk.camera.camera.ArMask.GLAM_MAKEUP && it != com.maysk.camera.camera.ArMask.FRECKLES }) { mask ->
-                        Pill("${mask.emoji} ${mask.title}", ui.arMask == mask) { vm.setArMask(mask) }
-                    }
-                }
-                BottomToolCategory.MAKEUP -> Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically
-                ) {
-                    listOf(com.maysk.camera.camera.ArMask.MAKEUP, com.maysk.camera.camera.ArMask.GLAM_MAKEUP, com.maysk.camera.camera.ArMask.FRECKLES).forEach { mask ->
-                        Pill("${mask.emoji} ${mask.title}", ui.arMask == mask) { vm.setArMask(mask) }
-                    }
-                    Pill("Face Beauty", panel == Panel.BEAUTY) { panel = if (panel == Panel.BEAUTY) Panel.NONE else Panel.BEAUTY }
-                }
-                BottomToolCategory.FILTERS -> LazyRow(
-                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(com.maysk.camera.camera.Filters.all.filter { it.id != "original" }.take(18), key = { it.id }) { filter ->
-                        Pill(filter.name, ui.filterId == filter.id) { vm.setFilter(filter.id) }
-                    }
-                    item { Pill("Все фильтры ⚙", panel == Panel.FILTERS) { panel = if (panel == Panel.FILTERS) Panel.NONE else Panel.FILTERS } }
-                }
-                BottomToolCategory.THREE_D -> Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("3D-маски и изменение формы лица: раздел подготовлен, но 3D-модели и деформация лица ещё не подключены.", color = Color.LightGray, fontSize = 10.sp)
-                }
-                BottomToolCategory.BACKGROUND -> LazyRow(
-                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(listOf(com.maysk.camera.camera.Effect.BG_BLUR, com.maysk.camera.camera.Effect.BOKEH, com.maysk.camera.camera.Effect.LIGHT_RAYS)) { effect ->
-                        Pill(effect.title, ui.effect == effect) { vm.setEffect(effect) }
-                    }
-                    item { Pill("Все эффекты", panel == Panel.EFFECTS) { panel = if (panel == Panel.EFFECTS) Panel.NONE else Panel.EFFECTS } }
-                }
-                BottomToolCategory.FRAMES -> Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Выберите рамку в открытой панели", color = Color.LightGray, fontSize = 10.sp)
-                    Spacer(Modifier.width(8.dp))
-                    Pill("Открыть рамки", panel == Panel.FRAMES) { panel = if (panel == Panel.FRAMES) Panel.NONE else Panel.FRAMES }
-                }
-                BottomToolCategory.DRAW -> Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Pill("Рисование включено", ui.snapDrawMode) { vm.setSnapDrawMode(!ui.snapDrawMode) }
-                    Pill("Настроить / очистить", panel == Panel.OVERLAY) { panel = if (panel == Panel.OVERLAY) Panel.NONE else Panel.OVERLAY }
-                }
-            }
+            // В обычном режиме категории скрыты: пользователь открывает их отдельной кнопкой справа.
             if (!recordingNow) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
                 Pill(if (ui.snapMode) "Snap: ВКЛ" else "Snap", ui.snapMode) { vm.setSnapMode(!ui.snapMode); panel = Panel.SNAP }
                 Pill("Текст / дата", panel == Panel.OVERLAY || ui.snapCaption.isNotBlank()) { panel = if (panel == Panel.OVERLAY) Panel.NONE else Panel.OVERLAY }
@@ -1138,6 +1087,74 @@ private fun SnapPanel(vm: CameraViewModel, enabled: Boolean, seconds: Int, openV
             }
         }
         if (busyId != null) Text("Обработка Snap…", color = Accent, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun EffectBrowser(
+    category: String,
+    onCategory: (String) -> Unit,
+    currentMask: com.maysk.camera.camera.ArMask,
+    currentFilter: String,
+    currentEffect: Effect,
+    onMask: (com.maysk.camera.camera.ArMask) -> Unit,
+    onFilter: (String) -> Unit,
+    onEffect: (Effect) -> Unit,
+    onBeauty: () -> Unit,
+    onFrames: () -> Unit,
+    onDraw: () -> Unit,
+) {
+    val categories = listOf("Маски", "Животные", "Макияж", "3D-стили", "Фильтры", "Фон", "Рамки", "Рисование")
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Эффекты", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text("Свайпайте, чтобы листать", color = Color.LightGray, fontSize = 10.sp)
+        }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(categories) { item ->
+                Pill(item, category == item) { onCategory(item) }
+            }
+        }
+        when (category) {
+            "Маски", "Животные", "Макияж", "3D-стили" -> {
+                val masks = when (category) {
+                    "Животные" -> listOf(com.maysk.camera.camera.ArMask.CAT, com.maysk.camera.camera.ArMask.DOG, com.maysk.camera.camera.ArMask.BUNNY, com.maysk.camera.camera.ArMask.FOX, com.maysk.camera.camera.ArMask.PANDA, com.maysk.camera.camera.ArMask.TIGER, com.maysk.camera.camera.ArMask.BEAR)
+                    "Макияж" -> listOf(com.maysk.camera.camera.ArMask.MAKEUP, com.maysk.camera.camera.ArMask.GLAM_MAKEUP, com.maysk.camera.camera.ArMask.FRECKLES, com.maysk.camera.camera.ArMask.BLUSH)
+                    "3D-стили" -> listOf(com.maysk.camera.camera.ArMask.CYBER, com.maysk.camera.camera.ArMask.ROBOT, com.maysk.camera.camera.ArMask.ASTRONAUT, com.maysk.camera.camera.ArMask.HERO, com.maysk.camera.camera.ArMask.PIRATE, com.maysk.camera.camera.ArMask.DEVIL, com.maysk.camera.camera.ArMask.HALO)
+                    else -> com.maysk.camera.camera.ArMask.entries.filter { it != com.maysk.camera.camera.ArMask.NONE }
+                }
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    items(masks) { mask ->
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(68.dp).clickable { onMask(mask) }) {
+                            Box(Modifier.size(54.dp).clip(RoundedCornerShape(16.dp)).background(if (currentMask == mask) Accent else Color.White.copy(alpha = 0.10f)).border(if (currentMask == mask) 2.dp else 1.dp, if (currentMask == mask) Color(0xFF63E6C2) else Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
+                                Text(mask.emoji, fontSize = 27.sp)
+                            }
+                            Text(mask.title, color = if (currentMask == mask) Color(0xFF7FFFE0) else Color.White, fontSize = 10.sp, maxLines = 1)
+                        }
+                    }
+                }
+                if (category == "Макияж") Pill("Настройки Face Beauty", false, onClick = onBeauty)
+                if (category == "3D-стили") Text("Это стилизованные 2D AR-наложения. Настоящие 3D-модели и деформация лица пока не подключены.", color = Color.LightGray, fontSize = 10.sp)
+            }
+            "Фильтры" -> LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                items(com.maysk.camera.camera.Filters.all.filter { it.id != "original" }, key = { it.id }) { f ->
+                    Column(Modifier.width(76.dp).clickable { onFilter(f.id) }, horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.size(58.dp).clip(RoundedCornerShape(14.dp)).background(if (currentFilter == f.id) Accent else Color.White.copy(alpha = 0.10f)).border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) { Text("◈", color = Color.White, fontSize = 24.sp) }
+                        Text(f.name, color = if (currentFilter == f.id) Color(0xFF7FFFE0) else Color.White, fontSize = 10.sp, maxLines = 1)
+                    }
+                }
+            }
+            "Фон" -> LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                items(listOf(Effect.NONE, Effect.BG_BLUR, Effect.BOKEH, Effect.LIGHT_RAYS, Effect.GLITCH, Effect.FILM, Effect.GRAIN, Effect.RAINBOW, Effect.RAIN, Effect.SNOW, Effect.CONFETTI, Effect.STARS, Effect.LEAVES, Effect.FIREWORKS, Effect.FIRE, Effect.SMOKE)) { e ->
+                    Column(Modifier.width(82.dp).clickable { onEffect(e) }, horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.size(58.dp).clip(RoundedCornerShape(14.dp)).background(if (currentEffect == e) Accent else Color.White.copy(alpha = 0.10f)), contentAlignment = Alignment.Center) { Text(if (e == Effect.NONE) "✕" else "✧", color = Color.White, fontSize = 24.sp) }
+                        Text(e.title, color = if (currentEffect == e) Color(0xFF7FFFE0) else Color.White, fontSize = 10.sp, maxLines = 2)
+                    }
+                }
+            }
+            "Рамки" -> Pill("Выбрать рамку", false, onClick = onFrames)
+            "Рисование" -> Pill("Открыть рисование и стикеры", false, onClick = onDraw)
+        }
     }
 }
 
