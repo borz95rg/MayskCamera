@@ -162,6 +162,9 @@ import kotlin.math.abs
 import kotlin.math.atan2
 
 private enum class Panel { NONE, FILTERS, EFFECTS, BEAUTY, PRO, EV, FRAMES, MASKS, SNAP, OVERLAY }
+private enum class BottomToolCategory(val title: String) {
+    MASKS("Маски"), FILTERS("Фильтры"), MAKEUP("Макияж"), THREE_D("3D"), BACKGROUND("Фон"), FRAMES("Рамки"), DRAW("Рисование")
+}
 
 /** Угол поворота иконок при горизонтальном положении телефона. */
 private val LocalIconRotation = androidx.compose.runtime.compositionLocalOf { 0f }
@@ -188,6 +191,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
     val live by vm.live.collectAsState()
     val scope = rememberCoroutineScope()
     var panel by remember { mutableStateOf(Panel.NONE) }
+    var bottomTool by remember { mutableStateOf(BottomToolCategory.MASKS) }
     var focusPoint by remember { mutableStateOf<Offset?>(null) }
 
     val previewView = remember {
@@ -558,28 +562,74 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                     items(com.maysk.camera.DualLayout.entries) { l -> Pill(l.title, ui.dualLayout == l) { vm.setDualLayout(l) } }
                 }
             }
-            // Быстрый доступ к маскам вынесен из шторки: макияж и животные теперь видны сразу.
+            // Постоянная нижняя панель инструментов: категории всегда видны, эффекты — в карусели ниже.
             Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 3.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 3.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Pill("Все AR-маски", panel == Panel.MASKS) { panel = if (panel == Panel.MASKS) Panel.NONE else Panel.MASKS }
-                listOf(
-                    com.maysk.camera.camera.ArMask.MAKEUP,
-                    com.maysk.camera.camera.ArMask.GLAM_MAKEUP,
-                    com.maysk.camera.camera.ArMask.CAT,
-                    com.maysk.camera.camera.ArMask.DOG,
-                    com.maysk.camera.camera.ArMask.BUNNY,
-                    com.maysk.camera.camera.ArMask.FOX,
-                    com.maysk.camera.camera.ArMask.PANDA,
-                    com.maysk.camera.camera.ArMask.TIGER,
-                    com.maysk.camera.camera.ArMask.BEAR,
-                    com.maysk.camera.camera.ArMask.CYBER,
-                    com.maysk.camera.camera.ArMask.HEART_EYES,
-                    com.maysk.camera.camera.ArMask.RAINBOW
-                ).forEach { mask ->
-                    Pill("${mask.emoji} ${mask.title}", ui.arMask == mask) { vm.setArMask(if (ui.arMask == mask) com.maysk.camera.camera.ArMask.NONE else mask) }
+                BottomToolCategory.entries.forEach { category ->
+                    Pill(category.title, bottomTool == category) {
+                        bottomTool = category
+                        when (category) {
+                            BottomToolCategory.MASKS -> panel = Panel.NONE
+                            BottomToolCategory.FILTERS -> panel = Panel.NONE
+                            BottomToolCategory.MAKEUP -> panel = Panel.NONE
+                            BottomToolCategory.THREE_D -> panel = Panel.NONE
+                            BottomToolCategory.BACKGROUND -> panel = Panel.NONE
+                            BottomToolCategory.FRAMES -> panel = Panel.FRAMES
+                            BottomToolCategory.DRAW -> { vm.setSnapDrawMode(true); panel = Panel.OVERLAY }
+                        }
+                    }
+                }
+            }
+            when (bottomTool) {
+                BottomToolCategory.MASKS -> LazyRow(
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(com.maysk.camera.camera.ArMask.entries.filter { it != com.maysk.camera.camera.ArMask.MAKEUP && it != com.maysk.camera.camera.ArMask.GLAM_MAKEUP && it != com.maysk.camera.camera.ArMask.FRECKLES }) { mask ->
+                        Pill("${mask.emoji} ${mask.title}", ui.arMask == mask) { vm.setArMask(mask) }
+                    }
+                }
+                BottomToolCategory.MAKEUP -> Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically
+                ) {
+                    listOf(com.maysk.camera.camera.ArMask.MAKEUP, com.maysk.camera.camera.ArMask.GLAM_MAKEUP, com.maysk.camera.camera.ArMask.FRECKLES).forEach { mask ->
+                        Pill("${mask.emoji} ${mask.title}", ui.arMask == mask) { vm.setArMask(mask) }
+                    }
+                    Pill("Face Beauty", panel == Panel.BEAUTY) { panel = if (panel == Panel.BEAUTY) Panel.NONE else Panel.BEAUTY }
+                }
+                BottomToolCategory.FILTERS -> LazyRow(
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(com.maysk.camera.camera.Filters.all.filter { it.id != "original" }.take(18), key = { it.id }) { filter ->
+                        Pill(filter.name, ui.filterId == filter.id) { vm.setFilter(filter.id) }
+                    }
+                    item { Pill("Все фильтры ⚙", panel == Panel.FILTERS) { panel = if (panel == Panel.FILTERS) Panel.NONE else Panel.FILTERS } }
+                }
+                BottomToolCategory.THREE_D -> Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("3D-маски и изменение формы лица: раздел подготовлен, но 3D-модели и деформация лица ещё не подключены.", color = Color.LightGray, fontSize = 10.sp)
+                }
+                BottomToolCategory.BACKGROUND -> LazyRow(
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(listOf(com.maysk.camera.camera.Effect.BG_BLUR, com.maysk.camera.camera.Effect.BOKEH, com.maysk.camera.camera.Effect.LIGHT_RAYS)) { effect ->
+                        Pill(effect.title, ui.effect == effect) { vm.setEffect(effect) }
+                    }
+                    item { Pill("Все эффекты", panel == Panel.EFFECTS) { panel = if (panel == Panel.EFFECTS) Panel.NONE else Panel.EFFECTS } }
+                }
+                BottomToolCategory.FRAMES -> Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Выберите рамку в открытой панели", color = Color.LightGray, fontSize = 10.sp)
+                    Spacer(Modifier.width(8.dp))
+                    Pill("Открыть рамки", panel == Panel.FRAMES) { panel = if (panel == Panel.FRAMES) Panel.NONE else Panel.FRAMES }
+                }
+                BottomToolCategory.DRAW -> Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Pill("Рисование включено", ui.snapDrawMode) { vm.setSnapDrawMode(!ui.snapDrawMode) }
+                    Pill("Настроить / очистить", panel == Panel.OVERLAY) { panel = if (panel == Panel.OVERLAY) Panel.NONE else Panel.OVERLAY }
                 }
             }
             if (!recordingNow) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {

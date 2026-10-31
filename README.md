@@ -104,3 +104,7 @@ See [`SNAP_AR_STATUS_RU.md`](SNAP_AR_STATUS_RU.md) for the implemented Snap phot
 ### Snap AR additions
 
 The camera now exposes face masks directly in the live camera controls (makeup, glam makeup, cat, dog, bunny, fox, panda, tiger, bear, cyber, heart eyes and rainbow). Completed MP4 recordings can be stored as encrypted one-view video Snaps when Snap mode is enabled. Stickers can be dragged and resized in the preview and are rendered into still photos; GPS coordinates are stamped when geotagging is enabled. See `SNAP_AR_STATUS_RU.md` for exact limitations: current face effects are 2D overlays, not full 3D face meshes, and dynamic overlays/background replacement are not yet encoded into recorded video.
+
+
+### Нижняя панель Snap AR
+В интерфейсе камеры категории «Маски», «Фильтры», «Макияж», «3D», «Фон», «Рамки» и «Рисование» теперь постоянно отображаются над горизонтальной каруселью эффектов. 3D-модели и полноценная замена фона остаются будущими задачами; текущие пункты «3D» и «Фон» не имитируют готовую реализацию.
