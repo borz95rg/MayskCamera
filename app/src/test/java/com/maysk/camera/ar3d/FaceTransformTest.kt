@@ -93,8 +93,9 @@ class FaceTransformTest {
     @Test fun eyeOpenDetected() {
         val open = FaceTransform.pose(mesh(eyeOpenAmt = 1f), ViewMapping(0.75f, false))!!
         val shut = FaceTransform.pose(mesh(eyeOpenAmt = 0f), ViewMapping(0.75f, false))!!
-        assertTrue("open eyes", open.eyeOpen > shut.eyeOpen)
-        assertTrue(shut.eyeOpen < 0.45f)
+        assertTrue("open > shut: ${open.eyeOpen} vs ${shut.eyeOpen}", open.eyeOpen > shut.eyeOpen + 0.15f)
+        assertTrue("shut should be low: ${shut.eyeOpen}", shut.eyeOpen < 0.35f)
+        assertTrue("open should be high: ${open.eyeOpen}", open.eyeOpen > 0.55f)
     }
 
     @Test fun degenerateMeshRejected() {

@@ -117,13 +117,17 @@ object FaceTransform {
         val mouth = ((lip - 0.06f) / 0.18f).coerceIn(0f, 1f)
         val faceH = sqrt(sq(p[ch] - p[fh]) + sq(p[ch + 1] - p[fh + 1]) + sq(p[ch + 2] - p[fh + 2])) / scale
         val ratio = faceH.coerceIn(1.4f, 3.0f)
-        // открытость глаз по векам
+        // открытость глаз по векам (в тех же экранных единицах, что и mouth/scale)
         fun eyeGap(topId: Int, botId: Int): Float {
             if (vertices.size <= maxOf(topId, botId)) return 1f
-            val t = vertices[topId]; val b = vertices[botId]
-            if (t.size < 3 || b.size < 3) return 1f
+            val tv = vertices[topId]; val bv = vertices[botId]
+            if (tv.size < 3 || bv.size < 3) return 1f
+            val t = FloatArray(3); val b = FloatArray(3)
+            map.toView(tv[0], tv[1], tv[2], t, 0)
+            map.toView(bv[0], bv[1], bv[2], b, 0)
             val g = sqrt(sq(t[0]-b[0]) + sq(t[1]-b[1]) + sq(t[2]-b[2])) / scale
-            return ((g - 0.015f) / 0.055f).coerceIn(0f, 1f)
+            // закрыто ≈ 0.02–0.04, открыто ≈ 0.12–0.20 в долях inter-ocular
+            return ((g - 0.03f) / 0.12f).coerceIn(0f, 1f)
         }
         val eyeOpen = (eyeGap(LEFT_EYE_TOP, LEFT_EYE_BOTTOM) + eyeGap(RIGHT_EYE_TOP, RIGHT_EYE_BOTTOM)) * 0.5f
         // yaw: насколько forward смотрит вбок (проекция на right)
