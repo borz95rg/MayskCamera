@@ -46,6 +46,10 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Wallpaper
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Flip
@@ -200,7 +204,10 @@ fun AiStudioScreen(onBack: () -> Unit, openEditor: (Uri, String?) -> Unit, openF
             else -> openEditor(uri, p)
         }
     }
-    val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> videoUri = uri }
+    val pickVideo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        videoUri = uri
+        if (uri != null) Toast.makeText(ctx, "Выберите режим звука в карточке ниже", Toast.LENGTH_SHORT).show()
+    }
 
     Column(Modifier.fillMaxSize().background(Maysk.colors.bg)) {
         ScreenHeader("Maysk AI Studio", onClose = onBack) { AiBadge() }
@@ -241,7 +248,19 @@ fun AiStudioScreen(onBack: () -> Unit, openEditor: (Uri, String?) -> Unit, openF
             StudioItem(Icons.Filled.Camera, "Размытие фона", "Портретный эффект для любого фото с человеком") {
                 pending = "background"; pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }
-            StudioItem(Icons.Filled.PhotoFilter, "Стили и фильтры", "20+ кино-, портретных и соц-фильтров") {
+            StudioItem(Icons.Filled.Cloud, "Замена неба", "Голубое, закат, звёздное, драма — для пейзажей") {
+                pending = "sky"; pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }
+            StudioItem(Icons.Filled.Wallpaper, "Замена фона", "Студия, белый, градиент — за человеком") {
+                pending = "bgreplace"; pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }
+            StudioItem(Icons.Filled.TextFields, "Текст и стикеры", "Надписи и эмодзи поверх фото") {
+                pending = "text"; pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }
+            StudioItem(Icons.Filled.CropFree, "Рамки", "Polaroid, кино, неон, люкс — 16 стилей") {
+                pending = "frame"; pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }
+            StudioItem(Icons.Filled.PhotoFilter, "Стили и фильтры", "342 фильтра: кино, аниме, cyberpunk, винтаж…") {
                 pending = "filters"; pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             }
             busy?.let {

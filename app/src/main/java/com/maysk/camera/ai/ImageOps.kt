@@ -644,56 +644,210 @@ object ImageOps {
         return Bitmap.createBitmap(src, left, top, right - left + 1, bottom - top + 1)
     }
 
-    /** Удаление объектов: заполнение маски диффузией от краёв (несколько масштабов). */
+    /**
+     * Удаление объектов (AI-заливка по образцам, как «Точечное восстановление»).
+     *
+     * 1) Вокруг закрашенной области берём фрагмент кадра и уменьшаем его.
+     * 2) Слой за слоем «снаружи внутрь» для каждого пикселя дыры ищем похожий по окрестности
+     *    участок настоящего фона (асфальт, стена, трава) — с учётом соседей, чтобы текстура
+     *    шла непрерывно, — и запоминаем, ОТКУДА взять пиксель.
+     * 3) На полном разрешении копируем пиксели из найденных мест — текстура остаётся резкой.
+     */
     fun inpaint(src: Bitmap, mask: Bitmap): Bitmap {
         val w = src.width; val h = src.height
         val m = if (mask.width == w && mask.height == h) mask else Bitmap.createScaledBitmap(mask, w, h, false)
-        val px = pixels(src)
         val mp = pixels(m)
-        val hole = BooleanArray(w * h) { ((mp[it] ushr 24) and 255) > 40 }
-        var minX = w; var minY = h; var maxX = 0; var maxY = 0
+        var hole = BooleanArray(w * h) { ((mp[it] ushr 24) and 255) > 40 }
+        // расширяем дыру на пару пикселей — убираем контур объекта
+        hole = dilate(hole, w, h, max(2, min(w, h) / 400))
+        var minX = w; var minY = h; var maxX = -1; var maxY = -1
         for (y in 0 until h) for (x in 0 until w) if (hole[y * w + x]) {
-            minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+            if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y
         }
-        if (maxX < minX) return src
-        val pad = 12
-        minX = max(0, minX - pad); minY = max(0, minY - pad); maxX = min(w - 1, maxX + pad); maxY = min(h - 1, maxY + pad)
-        val rw = maxX - minX + 1; val rh = maxY - minY + 1
-        val r = FloatArray(rw * rh); val g = FloatArray(rw * rh); val b = FloatArray(rw * rh)
-        val hl = BooleanArray(rw * rh)
-        for (y in 0 until rh) for (x in 0 until rw) {
-            val si = (y + minY) * w + x + minX; val i = y * rw + x
-            val c = px[si]; hl[i] = hole[si]
-            if (hl[i]) { r[i] = 128f; g[i] = 128f; b[i] = 128f } else {
-                r[i] = ((c shr 16) and 255).toFloat(); g[i] = ((c shr 8) and 255).toFloat(); b[i] = (c and 255).toFloat()
-            }
+        if (maxX < 0) return src
+        val bw = maxX - minX + 1; val bh = maxY - minY + 1
+        val pad = (max(bw, bh) * 1.2f).roundToInt().coerceAtLeast(24)
+        val rx0 = max(0, minX - pad); val ry0 = max(0, minY - pad)
+        val rx1 = min(w - 1, maxX + pad); val ry1 = min(h - 1, maxY + pad)
+        val rw = rx1 - rx0 + 1; val rh = ry1 - ry0 + 1
+
+        // уменьшенная копия области
+        val scale = max(1f, max(rw, rh) / 360f)
+        val sw = max(8, (rw / scale).roundToInt()); val sh = max(8, (rh / scale).roundToInt())
+        val region = Bitmap.createBitmap(src, rx0, ry0, rw, rh)
+        val small = pixels(Bitmap.createScaledBitmap(region, sw, sh, true))
+        val holeS = BooleanArray(sw * sh)
+        for (y in 0 until sh) for (x in 0 until sw) {
+            // пиксель маленькой копии — дыра, если в его области есть хоть одна точка дыры
+            val fx0 = rx0 + (x * scale).toInt(); val fy0 = ry0 + (y * scale).toInt()
+            val fx1 = min(rx1, rx0 + ((x + 1) * scale).toInt()); val fy1 = min(ry1, ry0 + ((y + 1) * scale).toInt())
+            var any = false
+            var yy = fy0
+            while (yy <= fy1 && !any) { var xx = fx0; while (xx <= fx1) { if (hole[yy * w + xx]) { any = true; break }; xx++ }; yy++ }
+            holeS[y * sw + x] = any
         }
-        // Итеративная диффузия: каждая точка дыры = среднее соседей
-        val iterations = min(600, max(rw, rh) * 3)
-        for (it in 0 until iterations) {
-            val step = if (it < iterations / 3) 4 else if (it < iterations * 2 / 3) 2 else 1
-            for (y in 0 until rh) for (x in 0 until rw) {
-                val i = y * rw + x
-                if (!hl[i]) continue
-                var sr = 0f; var sg = 0f; var sb = 0f; var n = 0
-                val xs = intArrayOf(x - step, x + step, x, x)
-                val ys = intArrayOf(y, y, y - step, y + step)
-                for (k in 0 until 4) {
-                    val xx = xs[k]; val yy = ys[k]
-                    if (xx < 0 || yy < 0 || xx >= rw || yy >= rh) continue
-                    val j = yy * rw + xx
-                    sr += r[j]; sg += g[j]; sb += b[j]; n++
+        val origHole = holeS.copyOf()
+        val known = BooleanArray(sw * sh) { !holeS[it] }
+        val srcIdx = IntArray(sw * sh) { if (known[it]) it else -1 }
+        val sr = IntArray(sw * sh) { (small[it] shr 16) and 255 }
+        val sg = IntArray(sw * sh) { (small[it] shr 8) and 255 }
+        val sb = IntArray(sw * sh) { small[it] and 255 }
+        val candidatesPool = (0 until sw * sh).filter { !origHole[it] }.toIntArray()
+        if (candidatesPool.isEmpty()) return src
+        val rnd = Random(1234)
+        val half = 3
+
+        // limit — текущая лучшая цена: если сумма уже больше, дальше не считаем
+        fun cost(p: Int, c: Int, limit: Long): Long {
+            val px = p % sw; val py = p / sw; val cx = c % sw; val cy = c / sw
+            var sum = 0L; var n = 0
+            for (oy in -half..half) {
+                val qy = py + oy; val ty = cy + oy
+                if (qy < 0 || qy >= sh || ty < 0 || ty >= sh) continue
+                for (ox in -half..half) {
+                    val qx = px + ox; val tx = cx + ox
+                    if (qx < 0 || qx >= sw || tx < 0 || tx >= sw) continue
+                    val q = qy * sw + qx; val t = ty * sw + tx
+                    if (!known[q] || origHole[t]) continue
+                    val dr = sr[q] - sr[t]; val dg = sg[q] - sg[t]; val db = sb[q] - sb[t]
+                    sum += (dr * dr + dg * dg + db * db).toLong(); n++
+                    if (sum > limit) return Long.MAX_VALUE
                 }
-                if (n > 0) { r[i] = sr / n; g[i] = sg / n; b[i] = sb / n }
+            }
+            if (n < 4) return Long.MAX_VALUE
+            return sum * 49 / n
+        }
+
+        // послойная заливка «снаружи внутрь»
+        var remaining = holeS.count { it }
+        var guard = 0
+        while (remaining > 0 && guard++ < 4000) {
+            val front = ArrayList<Int>()
+            for (i in 0 until sw * sh) {
+                if (known[i]) continue
+                val x = i % sw; val y = i / sw
+                if ((x > 0 && known[i - 1]) || (x < sw - 1 && known[i + 1]) || (y > 0 && known[i - sw]) || (y < sh - 1 && known[i + sw])) front.add(i)
+            }
+            if (front.isEmpty()) break
+            front.shuffle(rnd)
+            for (p in front) {
+                val px = p % sw; val py = p / sw
+                var best = -1; var bestCost = Long.MAX_VALUE
+                // propagated = кандидат продолжает текстуру соседа — даём ему бонус 15% (цельные куски, без «квадратов»)
+                fun tryC(c: Int, propagated: Boolean = false) {
+                    if (c < 0 || c >= sw * sh || origHole[c]) return
+                    var cc = cost(p, c, bestCost)
+                    if (cc == Long.MAX_VALUE) return
+                    if (propagated) cc = cc * 85 / 100
+                    if (cc < bestCost) { bestCost = cc; best = c }
+                }
+                // продолжение текстуры соседей
+                for (o in intArrayOf(-1, 1, -sw, sw, -sw - 1, -sw + 1, sw - 1, sw + 1)) {
+                    val q = p + o
+                    if (q < 0 || q >= sw * sh || !known[q]) continue
+                    val qx = q % sw
+                    if (kotlin.math.abs(qx - px) > 1) continue
+                    val s0 = srcIdx[q]
+                    if (s0 >= 0) {
+                        val cx = s0 % sw + (px - qx); val cy = s0 / sw + (py - q / sw)
+                        if (cx in 0 until sw && cy in 0 until sh) tryC(cy * sw + cx, propagated = true)
+                    }
+                }
+                // случайный поиск по фону (ближе — чаще)
+                repeat(36) {
+                    val c = if (it < 24) {
+                        val r = (4 + rnd.nextInt(max(5, max(sw, sh) / 2)))
+                        val cx = (px + rnd.nextInt(-r, r + 1)).coerceIn(0, sw - 1)
+                        val cy = (py + rnd.nextInt(-r, r + 1)).coerceIn(0, sh - 1)
+                        cy * sw + cx
+                    } else candidatesPool[rnd.nextInt(candidatesPool.size)]
+                    tryC(c)
+                }
+                if (best < 0) best = candidatesPool[rnd.nextInt(candidatesPool.size)]
+                sr[p] = sr[best]; sg[p] = sg[best]; sb[p] = sb[best]
+                srcIdx[p] = srcIdx[best].takeIf { it >= 0 } ?: best
+                known[p] = true
+                remaining--
             }
         }
-        // лёгкое зерно, чтобы заплатка не была «пластиковой»
-        val rnd = Random(42)
-        for (y in 0 until rh) for (x in 0 until rw) {
-            val i = y * rw + x
-            if (!hl[i]) continue
-            val n = (rnd.nextFloat() - 0.5f) * 6f
-            px[(y + minY) * w + x + minX] = (0xFF shl 24) or (clamp255(r[i] + n) shl 16) or (clamp255(g[i] + n) shl 8) or clamp255(b[i] + n)
+
+        // перенос на полное разрешение: копируем пиксели из найденных мест фона
+        val px = pixels(src)
+        val out = px.copyOf()
+        // каждый пиксель смешиваем из 4 соседних «источников» (как голосование в PatchMatch) — швов нет
+        for (y in max(0, minY)..maxY) for (x in max(0, minX)..maxX) {
+            val i = y * w + x
+            if (!hole[i]) continue
+            val gx = (x - rx0) / scale - 0.5f; val gy = (y - ry0) / scale - 0.5f
+            val x0 = kotlin.math.floor(gx).toInt(); val y0 = kotlin.math.floor(gy).toInt()
+            val tx = gx - x0; val ty = gy - y0
+            var ar = 0f; var ag = 0f; var ab = 0f; var ws = 0f
+            for (k in 0 until 4) {
+                val ix0 = if (k == 1 || k == 3) x0 + 1 else x0
+                val iy0 = if (k >= 2) y0 + 1 else y0
+                val wt = (if (k == 1 || k == 3) tx else 1 - tx) * (if (k >= 2) ty else 1 - ty)
+                if (wt <= 0f) continue
+                val ix = ix0.coerceIn(0, sw - 1); val iy = iy0.coerceIn(0, sh - 1)
+                val sp = iy * sw + ix
+                val s0 = srcIdx[sp]
+                var cr = sr[sp].toFloat(); var cg = sg[sp].toFloat(); var cb = sb[sp].toFloat()
+                if (s0 >= 0) {
+                    val fx = x + ((s0 % sw - ix) * scale).roundToInt()
+                    val fy = y + ((s0 / sw - iy) * scale).roundToInt()
+                    if (fx in 0 until w && fy in 0 until h && !hole[fy * w + fx]) {
+                        val c = px[fy * w + fx]
+                        cr = ((c shr 16) and 255).toFloat(); cg = ((c shr 8) and 255).toFloat(); cb = (c and 255).toFloat()
+                    }
+                }
+                ar += cr * wt; ag += cg * wt; ab += cb * wt; ws += wt
+            }
+            if (ws > 0f) out[i] = (0xFF shl 24) or (clamp255(ar / ws) shl 16) or (clamp255(ag / ws) shl 8) or clamp255(ab / ws)
+        }
+        // мягкий шов по краю заливки
+        val edge = max(1, min(w, h) / 700)
+        val bl = boxBlur(out, w, h, edge)
+        for (y in max(0, minY - edge)..min(h - 1, maxY + edge)) for (x in max(0, minX - edge)..min(w - 1, maxX + edge)) {
+            val i = y * w + x
+            var nearEdge = false
+            if (hole[i]) {
+                if ((x > 0 && !hole[i - 1]) || (x < w - 1 && !hole[i + 1]) || (y > 0 && !hole[i - w]) || (y < h - 1 && !hole[i + w])) nearEdge = true
+            }
+            if (nearEdge) out[i] = bl[i]
+        }
+        return fromPixels(out, w, h)
+    }
+
+    private fun dilate(m: BooleanArray, w: Int, h: Int, r: Int): BooleanArray {
+        var cur = m
+        repeat(r) {
+            val nx = cur.copyOf()
+            for (y in 0 until h) for (x in 0 until w) {
+                val i = y * w + x
+                if (cur[i]) continue
+                if ((x > 0 && cur[i - 1]) || (x < w - 1 && cur[i + 1]) || (y > 0 && cur[i - w]) || (y < h - 1 && cur[i + w])) nx[i] = true
+            }
+            cur = nx
+        }
+        return cur
+    }
+
+    /** Мягкое размытие краёв кадра (когда человека в кадре нет). */
+    fun radialFocusBlur(src: Bitmap, strength: Float): Bitmap {
+        val w = src.width; val h = src.height
+        val blurred = pixels(fastBlur(src, (4 + strength * 8).roundToInt()))
+        val px = pixels(src)
+        val cx = w / 2f; val cy = h / 2f
+        val rmax = sqrt(cx * cx + cy * cy)
+        for (y in 0 until h) for (x in 0 until w) {
+            val d = sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) / rmax
+            val a = (((d - 0.35f) / 0.45f).coerceIn(0f, 1f)) * strength
+            if (a < 0.02f) continue
+            val i = y * w + x
+            val c = px[i]; val b = blurred[i]
+            px[i] = (0xFF shl 24) or
+                (clamp255(((c shr 16) and 255) * (1 - a) + ((b shr 16) and 255) * a) shl 16) or
+                (clamp255(((c shr 8) and 255) * (1 - a) + ((b shr 8) and 255) * a) shl 8) or
+                clamp255((c and 255) * (1 - a) + (b and 255) * a)
         }
         return fromPixels(px, w, h)
     }

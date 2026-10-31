@@ -179,44 +179,58 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
         preview = ImageOps.limitSize(b, 1280)
     }
 
-    fun runAi(label: String, op: suspend (Bitmap) -> Bitmap) {
+    /** Запуск AI-операции: прогресс, понятное сообщение об ошибке, показ «до/после». */
+    fun runAi(label: String, done: String? = null, op: suspend (Bitmap) -> Bitmap) {
         val b = base ?: return
         busy = label
         scope.launch {
-            val r = runCatching { withContext(Dispatchers.Default) { op(b) } }.getOrNull()
-            if (r != null) { setBase(r); split = 0.5f } else Toast.makeText(ctx, "Не удалось обработать", Toast.LENGTH_SHORT).show()
+            val r = runCatching { withContext(Dispatchers.Default) { op(b) } }
+            r.onSuccess { res ->
+                setBase(res); split = 0.5f
+                Toast.makeText(ctx, (done ?: "Готово") + " · проведите по фото, чтобы сравнить до/после", Toast.LENGTH_LONG).show()
+            }.onFailure { e ->
+                Toast.makeText(ctx, e.message ?: "Не удалось обработать", Toast.LENGTH_LONG).show()
+            }
             busy = null
         }
     }
 
-    fun enhance() = runAi("AI улучшение…") { b -> val p = AiEnhancer.plan(b); plan = p; AiEnhancer.apply(b, p) }
-    fun removeBg() = runAi("Размытие фона…") { b ->
-        val m = Vision.personMask(ImageOps.limitSize(b, 512)) ?: error("нет человека")
-        if (!ImageOps.personMaskUsable(m.first)) error("в кадре нет человека")
-        ImageOps.blurBackground(b, m.first, m.second, m.third, 0.7f)
+    fun enhance() = runAi("AI улучшение…", "AI улучшил свет, цвет и детали") { b ->
+        val p = AiEnhancer.plan(b); plan = p
+        // для заметного результата — без лишнего шумоподавления, с чёткостью
+        AiEnhancer.apply(b, p.copy(levels = maxOf(p.levels, 0.6f), clarity = maxOf(p.clarity, 0.2f)))
     }
-    fun replaceBg(b: ImageOps.Backdrop) = runAi("Замена фона…") { src ->
-        val m = Vision.personMask(ImageOps.limitSize(src, 512)) ?: error("нет человека")
-        if (!ImageOps.personMaskUsable(m.first)) error("в кадре нет человека")
+    fun removeBg() = runAi("Размытие фона…", "Фон размыт") { b ->
+        val m = Vision.personMask(ImageOps.limitSize(b, 512))
+        if (m != null && ImageOps.personMaskUsable(m.first)) ImageOps.blurBackground(b, m.first, m.second, m.third, 0.7f)
+        else {
+            withContext(Dispatchers.Main) { Toast.makeText(ctx, "Человек не найден — размываю края кадра", Toast.LENGTH_SHORT).show() }
+            ImageOps.radialFocusBlur(b, 0.8f)
+        }
+    }
+    fun replaceBg(b: ImageOps.Backdrop) = runAi("Замена фона…", "Фон заменён: ${b.title}") { src ->
+        val m = Vision.personMask(ImageOps.limitSize(src, 512)) ?: error("Человек не найден. Замена фона работает на фото с людьми")
+        if (!ImageOps.personMaskUsable(m.first)) error("Человек не найден. Замена фона работает на фото с людьми")
         ImageOps.replaceBackground(src, m.first, m.second, m.third, b)
     }
-    fun replaceSky(sky: ImageOps.Sky) = runAi("Замена неба…") { src ->
-        ImageOps.replaceSky(src, sky) ?: error("небо не найдено")
+    fun replaceSky(sky: ImageOps.Sky) = runAi("Замена неба…", "Небо: ${sky.title}") { src ->
+        ImageOps.replaceSky(src, sky) ?: error("Небо не найдено. Снимите кадр, где видно светлое небо сверху")
     }
-    fun retouch() = runAi("Ретушь лица…") { b ->
+    fun retouch() = runAi("Ретушь лица…", "Кожа и глаза улучшены") { b ->
         val faces = Vision.faces(ImageOps.limitSize(b, 1600))
+        if (faces.isEmpty()) error("Лицо не найдено. Ретушь работает на фото с людьми")
         var r = ImageOps.skinSmooth(b, 0.55f, faces.map { it.box }, 0.3f)
         val eyes = faces.flatMap { it.eyes }
         if (eyes.isNotEmpty()) r = ImageOps.enhanceEyes(r, eyes, faces.maxOf { it.box.width() } * 0.09f, 0.5f)
         r
     }
-    fun restore() = runAi("Восстановление фото…") { b -> ImageOps.restoreOldPhoto(b) }
+    fun restore() = runAi("Восстановление фото…", "Фото восстановлено: шум, цвет, контраст") { b -> ImageOps.restoreOldPhoto(b) }
     fun applyRemoval() {
         val b = base ?: return
         if (strokes.isEmpty()) return
         val pts = strokes.toList()
         strokes.clear()
-        runAi("Удаление объекта…") { _ ->
+        runAi("AI удаляет объект и дорисовывает фон…", "Объект удалён") { _ ->
             val mask = Bitmap.createBitmap(b.width, b.height, Bitmap.Config.ARGB_8888)
             val c = Canvas(mask)
             val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
@@ -233,7 +247,11 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
         setBase(b, pushUndo = false)
         when (startTool) {
             "enhance" -> enhance()
-            "remove" -> tool = EditTool.REMOVE
+            "remove" -> { tool = EditTool.REMOVE; Toast.makeText(ctx, "Закрасьте пальцем объект, затем «Удалить»", Toast.LENGTH_LONG).show() }
+            "sky" -> tool = EditTool.SKY
+            "bgreplace" -> tool = EditTool.BACKGROUND
+            "text" -> tool = EditTool.TEXT
+            "frame" -> tool = EditTool.FRAME
             "background" -> removeBg()
             "retouch" -> retouch()
             "restore" -> restore()
@@ -281,7 +299,7 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
     }
 
     Column(Modifier.fillMaxSize().background(Maysk.colors.bg)) {
-        ScreenHeader("AI Редактирование", onBack = onBack, accentIcon = Icons.Filled.AutoAwesome) {
+        ScreenHeader("AI Редактор", onBack = onBack, accentIcon = Icons.Filled.AutoAwesome) {
             if (undo.isNotEmpty()) IconButton(onClick = { val last = undo.removeAt(undo.lastIndex); setBase(last, pushUndo = false) }) {
                 Icon(Icons.Filled.Undo, "Отменить", tint = Maysk.colors.text)
             }
