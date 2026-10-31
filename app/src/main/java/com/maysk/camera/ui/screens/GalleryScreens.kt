@@ -28,12 +28,15 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.item
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.PhotoFilter
 import androidx.compose.material.icons.filled.PlayCircleFilled
@@ -97,6 +100,19 @@ private object GalleryTags {
         ctx.getSharedPreferences("gallery_tags", Context.MODE_PRIVATE).edit().putString(id.toString(), t.name).apply()
 }
 
+/** Избранное (хранится локально). */
+object Favorites {
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences("favorites", Context.MODE_PRIVATE)
+    fun all(ctx: Context): Set<String> = prefs(ctx).getStringSet("uris", emptySet()) ?: emptySet()
+    fun isFav(ctx: Context, uri: Uri) = all(ctx).contains(uri.toString())
+    fun toggle(ctx: Context, uri: Uri): Boolean {
+        val set = all(ctx).toMutableSet()
+        val now = if (set.remove(uri.toString())) false else { set.add(uri.toString()); true }
+        prefs(ctx).edit().putStringSet("uris", set).apply()
+        return now
+    }
+}
+
 @Composable
 fun GalleryScreen(onBack: () -> Unit, onOpen: (MediaItem) -> Unit, hasReadPermission: Boolean, requestPermission: () -> Unit) {
     val ctx = LocalContext.current
@@ -107,6 +123,8 @@ fun GalleryScreen(onBack: () -> Unit, onOpen: (MediaItem) -> Unit, hasReadPermis
     var album by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     val tags = remember { mutableStateMapOf<Long, SceneType>() }
+    var favOnly by remember { mutableStateOf(false) }
+    val favs = remember(items) { Favorites.all(ctx) }
 
     LaunchedEffect(Unit) {
         items = MediaStoreRepo.queryMaysk(ctx)
@@ -134,11 +152,15 @@ fun GalleryScreen(onBack: () -> Unit, onOpen: (MediaItem) -> Unit, hasReadPermis
         Segmented(listOf("Фото", "Видео", "Альбомы"), tab, Modifier.padding(horizontal = 16.dp)) { tab = it; album = null }
         if (tab == 0) {
             LazyRow(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item { Pill("♥ Избранное", favOnly) { favOnly = !favOnly } }
                 items(categories.indices.toList()) { i -> Pill(categories[i].first, cat == i) { cat = i } }
             }
         }
         val list: List<MediaItem> = when (tab) {
-            0 -> items.filter { !it.isVideo && (cat == 0 || tags[it.id]?.let { t -> t in categories[cat].second } == true) }
+            0 -> items.filter {
+                !it.isVideo && (cat == 0 || tags[it.id]?.let { t -> t in categories[cat].second } == true) &&
+                    (!favOnly || favs.contains(it.uri.toString()))
+            }
             1 -> items.filter { it.isVideo }
             else -> if (album != null) all.filter { it.bucket == album } else emptyList()
         }
@@ -187,13 +209,15 @@ fun ViewerScreen(
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf<String?>(null) }
     var audioMenu by remember { mutableStateOf(false) }
+    var fav by remember { mutableStateOf(Favorites.isFav(ctx, uri)) }
     val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
         if (r.resultCode == android.app.Activity.RESULT_OK) onBack()
     }
     fun delete() {
         try {
             if (Build.VERSION.SDK_INT >= 30) {
-                val pi = MediaStore.createDeleteRequest(ctx.contentResolver, listOf(uri))
+                // в системную корзину — можно восстановить в течение 30 дней
+                val pi = MediaStore.createTrashRequest(ctx.contentResolver, listOf(uri), true)
                 deleteLauncher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
             } else {
                 ctx.contentResolver.delete(uri, null, null); onBack()
@@ -260,8 +284,9 @@ fun ViewerScreen(
             } else {
                 ViewerAction(Icons.Filled.GraphicEq, "AI Audio") { audioMenu = !audioMenu }
             }
+            ViewerAction(if (fav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, "Избранное") { fav = Favorites.toggle(ctx, uri) }
             ViewerAction(Icons.Filled.Share, "Поделиться") { share() }
-            ViewerAction(Icons.Filled.Delete, "Удалить") { delete() }
+            ViewerAction(Icons.Filled.Delete, if (Build.VERSION.SDK_INT >= 30) "В корзину" else "Удалить") { delete() }
         }
     }
 }

@@ -88,6 +88,14 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.runtime.mutableIntStateOf
+import android.view.OrientationEventListener
+import android.view.Surface
+import android.view.WindowManager
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -120,6 +128,9 @@ import kotlin.math.abs
 import kotlin.math.atan2
 
 private enum class Panel { NONE, FILTERS, EFFECTS, BEAUTY, PRO, EV }
+
+/** Угол поворота иконок при горизонтальном положении телефона. */
+private val LocalIconRotation = androidx.compose.runtime.compositionLocalOf { 0f }
 
 data class CameraNav(
     val openModes: () -> Unit,
@@ -161,6 +172,36 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
     LaunchedEffect(focusPoint) { if (focusPoint != null) { delay(1200); focusPoint = null } }
     LaunchedEffect(settings.voiceControl) { if (settings.voiceControl) vm.startVoice() else vm.stopVoice() }
 
+    val haptic = LocalHapticFeedback.current
+    // Поворот телефона: иконки поворачиваются, фото/видео сохраняются в правильной ориентации
+    var deviceRotation by remember { mutableIntStateOf(0) }
+    DisposableEffect(Unit) {
+        val listener = object : OrientationEventListener(context) {
+            override fun onOrientationChanged(o: Int) {
+                if (o == OrientationEventListener.ORIENTATION_UNKNOWN) return
+                val r = when (o) { in 45..134 -> 270; in 135..224 -> 180; in 225..314 -> 90; else -> 0 }
+                if (r != deviceRotation) {
+                    deviceRotation = r
+                    vm.setDeviceRotation(
+                        when (r) { 90 -> Surface.ROTATION_90; 180 -> Surface.ROTATION_180; 270 -> Surface.ROTATION_270; else -> Surface.ROTATION_0 }
+                    )
+                }
+            }
+        }
+        if (listener.canDetectOrientation()) listener.enable()
+        onDispose { listener.disable() }
+    }
+    val iconRotation by animateFloatAsState(
+        targetValue = when (deviceRotation) { 90 -> 90f; 270 -> -90f; 180 -> 180f; else -> 0f }, label = "iconRotation"
+    )
+    // Вспышка экраном для селфи: максимальная яркость дисплея
+    LaunchedEffect(ui.screenFlash) {
+        val w = (context as? android.app.Activity)?.window ?: return@LaunchedEffect
+        val lp = w.attributes
+        lp.screenBrightness = if (ui.screenFlash) 1f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        w.attributes = lp
+    }
+
     // Сканер документов (ML Kit)
     val scanLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res ->
         val r = GmsDocumentScanningResult.fromActivityResultIntent(res.data) ?: return@rememberLauncherForActivityResult
@@ -187,6 +228,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
 
     val isVideo = ui.mode.recordsVideo
 
+    androidx.compose.runtime.CompositionLocalProvider(LocalIconRotation provides iconRotation) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         Column(Modifier.fillMaxSize()) {
             TopBar(vm, ui.flash, ui.hdr, ui.aiPro, ui.timer, isVideo, cam.recording, ui.voiceListening, settings.voiceControl,
@@ -197,7 +239,8 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                 Modifier
                     .fillMaxWidth()
                     .weight(1f),
-                contentAlignment = Alignment.Center
+                // кадр прижат вверх: свободное место под ним занимают панели (как в макете)
+                contentAlignment = Alignment.TopCenter
             ) {
                 val ratio = if (isVideo) 9f / 16f else 3f / 4f
                 Box(
@@ -272,25 +315,34 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                     if (ui.mode == CameraMode.PRO) ProInfoRow(cam.liveIso, cam.liveExposureNs, cam.liveAperture ?: cam.apertures.firstOrNull(), Modifier.align(Alignment.BottomCenter))
                     if (ui.mode == CameraMode.PRO) Histogram(live.histogram, Modifier.align(Alignment.TopEnd).padding(10.dp))
                     // зум
-                    ZoomBar(cam.zoom, cam.minZoom, cam.maxZoom, cam.hasUltraWide, ui.ultraWide, Modifier.align(Alignment.BottomCenter).padding(bottom = if (ui.mode == CameraMode.PRO) 52.dp else 12.dp)) { vm.selectZoom(it) }
+                    if (panel == Panel.NONE) ZoomBar(cam.zoom, cam.minZoom, cam.maxZoom, cam.hasUltraWide, ui.ultraWide, Modifier.align(Alignment.BottomCenter).padding(bottom = if (ui.mode == CameraMode.PRO) 52.dp else 12.dp)) { vm.selectZoom(it) }
                     ui.busy?.takeIf { !ui.timelapseActive && !ui.panoramaActive }?.let { BusyOverlay(it, ui.progress) }
                 }
-            }
 
-            // ---------- панели ----------
-            AnimatedVisibility(panel != Panel.NONE) {
-                Box(Modifier.fillMaxWidth().background(Color(0xF0101012)).padding(12.dp)) {
-                    when (panel) {
-                        Panel.FILTERS -> FiltersPanel(ui.filterId, ui.filterIntensity, ui.lastUri, vm::setFilter, vm::setFilterIntensity)
-                        Panel.EFFECTS -> EffectsPanel(ui.effect, vm::setEffect)
-                        Panel.BEAUTY -> BeautyPanel(vm, ui.beautyOn, settings.beautySkin, settings.beautyEyes, settings.beautyFace)
-                        Panel.PRO -> ProPanel(vm, ui.manual, cam.isoRange, cam.manualSupported, onMore = nav.openProSettings)
-                        Panel.EV -> LabeledSlider(
-                            "Экспозиция", cam.evIndex.toFloat(),
-                            display = "%+.1f EV".format(cam.evIndex * cam.evStep),
-                            range = cam.evMin.toFloat()..maxOf(cam.evMax.toFloat(), cam.evMin + 1f)
-                        ) { vm.controller.setExposureIndex(it.toInt()) }
-                        Panel.NONE -> Unit
+                // ---------- панели: полупрозрачно поверх низа кадра, превью не сжимается ----------
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = panel != Panel.NONE,
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xB30E0B10))
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        when (panel) {
+                            Panel.FILTERS -> FiltersPanel(ui.filterId, ui.filterIntensity, ui.lastUri, vm::setFilter, vm::setFilterIntensity)
+                            Panel.EFFECTS -> EffectsPanel(ui.effect, vm::setEffect)
+                            Panel.BEAUTY -> BeautyPanel(vm, ui.beautyOn, settings.beautySkin, settings.beautyEyes, settings.beautyFace)
+                            Panel.PRO -> ProPanel(vm, ui.manual, cam.isoRange, cam.manualSupported, onMore = nav.openProSettings)
+                            Panel.EV -> CompactSlider(
+                                "EV", cam.evIndex.toFloat(), "%+.1f".format(cam.evIndex * cam.evStep),
+                                cam.evMin.toFloat()..maxOf(cam.evMax.toFloat(), cam.evMin + 1f)
+                            ) { vm.controller.setExposureIndex(it.toInt()) }
+                            Panel.NONE -> Unit
+                        }
                     }
                 }
             }
@@ -309,7 +361,10 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
             }
 
             // ---------- режимы ----------
-            ModeStrip(ui.mode, onSelect = { panel = Panel.NONE; vm.setMode(it) }, onMore = nav.openModes)
+            ModeStrip(ui.mode, onSelect = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                panel = Panel.NONE; vm.setMode(it)
+            }, onMore = nav.openModes)
 
             // ---------- затвор ----------
             Row(
@@ -328,12 +383,18 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                         .clickable { ui.lastUri?.let { nav.openViewer(it, ui.lastIsVideo) } ?: nav.openGallery() },
                     contentAlignment = Alignment.Center
                 ) {
-                    if (ui.lastUri != null) AsyncImage(model = ui.lastUri, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    if (ui.lastUri != null) AsyncImage(model = ui.lastUri, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().rotate(iconRotation))
                 }
                 ShutterButton(
                     video = isVideo, recording = cam.recording || ui.timelapseActive || ui.panoramaActive,
-                    busy = ui.busy != null && !ui.timelapseActive && !ui.panoramaActive
-                ) { if (ui.mode == CameraMode.DOCUMENT) launchScanner() else vm.shutter() }
+                    busy = ui.busy != null && !ui.timelapseActive && !ui.panoramaActive,
+                    burst = ui.burstCount,
+                    onLongStart = if (isVideo) null else ({ haptic.performHapticFeedback(HapticFeedbackType.LongPress); vm.startBurst() }),
+                    onLongEnd = { vm.stopBurst() },
+                ) {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    if (ui.mode == CameraMode.DOCUMENT) launchScanner() else vm.shutter()
+                }
                 if (cam.recording) {
                     CircleIcon(if (cam.paused) Icons.Filled.PlayArrow else Icons.Filled.Pause) { vm.pauseResume() }
                 } else {
@@ -354,6 +415,9 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                     .padding(horizontal = 16.dp, vertical = 10.dp)
             ) { Text(msg, color = Color.White, fontSize = 13.sp) }
         }
+        // белый экран — вспышка для фронтальной камеры
+        if (ui.screenFlash) Box(Modifier.fillMaxSize().background(Color(0xFFFFF8F0)))
+    }
     }
 }
 
@@ -404,7 +468,7 @@ private fun TopChip(text: String, active: Boolean, onClick: () -> Unit) {
 @Composable
 private fun ToolIcon(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit) {
     Column(Modifier.clickable(onClick = onClick).padding(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(icon, label, tint = if (active) Accent else Color.White, modifier = Modifier.size(22.dp))
+        Icon(icon, label, tint = if (active) Accent else Color.White, modifier = Modifier.size(22.dp).rotate(LocalIconRotation.current))
         Text(label, color = if (active) Accent else Color.White.copy(alpha = 0.75f), fontSize = 10.sp)
     }
 }
@@ -418,20 +482,48 @@ private fun CircleIcon(icon: ImageVector, onClick: () -> Unit) {
             .background(Color(0xFF222222))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
-    ) { Icon(icon, null, tint = Color.White) }
+    ) { Icon(icon, null, tint = Color.White, modifier = Modifier.rotate(LocalIconRotation.current)) }
 }
 
 @Composable
-private fun ShutterButton(video: Boolean, recording: Boolean, busy: Boolean, onClick: () -> Unit) {
+private fun ShutterButton(
+    video: Boolean, recording: Boolean, busy: Boolean, burst: Int = 0,
+    onLongStart: (() -> Unit)? = null, onLongEnd: () -> Unit = {}, onClick: () -> Unit,
+) {
+    val latestClick by androidx.compose.runtime.rememberUpdatedState(onClick)
+    val latestLong by androidx.compose.runtime.rememberUpdatedState(onLongStart)
+    val latestEnd by androidx.compose.runtime.rememberUpdatedState(onLongEnd)
+    val latestBusy by androidx.compose.runtime.rememberUpdatedState(busy)
     Box(
         Modifier
             .size(80.dp)
             .clip(CircleShape)
             .border(4.dp, if (video || recording) Accent else Color.White, CircleShape)
-            .clickable(enabled = !busy, onClick = onClick),
+            .pointerInput(Unit) {
+                detectTapGestures(onPress = {
+                    if (latestBusy) return@detectTapGestures
+                    val long = latestLong
+                    if (long == null) {
+                        if (tryAwaitRelease()) latestClick()
+                    } else {
+                        // короткое нажатие — снимок, удержание > 0.45 с — серийная съёмка
+                        val released = withTimeoutOrNull(450) { tryAwaitRelease() }
+                        if (released != null) {
+                            if (released) latestClick()
+                        } else {
+                            long()
+                            tryAwaitRelease()
+                            latestEnd()
+                        }
+                    }
+                })
+            },
         contentAlignment = Alignment.Center
     ) {
         when {
+            burst > 0 -> Box(Modifier.size(64.dp).clip(CircleShape).background(Accent), contentAlignment = Alignment.Center) {
+                Text("$burst", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            }
             busy -> CircularProgressIndicator(color = Accent, modifier = Modifier.size(56.dp))
             recording -> Box(Modifier.size(30.dp).clip(RoundedCornerShape(6.dp)).background(Accent))
             video -> Box(Modifier.size(62.dp).clip(CircleShape).background(Accent))
@@ -671,7 +763,7 @@ private fun FiltersPanel(selected: String, intensity: Float, thumb: Uri?, onSele
                 }
             }
         }
-        if (selected != "original") LabeledSlider("Интенсивность", intensity, onChange = onIntensity)
+        if (selected != "original") CompactSlider("Сила", intensity, "${(intensity * 100).toInt()}", onChange = onIntensity)
     }
 }
 
@@ -698,13 +790,44 @@ private fun EffectsPanel(selected: Effect, onSelect: (Effect) -> Unit) {
 private fun BeautyPanel(vm: CameraViewModel, on: Boolean, skin: Float, eyes: Float, face: Float) {
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("AI Красота", color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text("AI Красота", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
             Pill(if (on) "Вкл." else "Выкл.", on) { vm.setBeauty(!on) }
         }
-        LabeledSlider("Кожа", skin) { v -> vm.updateSettings({ it.copy(beautySkin = v) }) }
-        LabeledSlider("Глаза", eyes) { v -> vm.updateSettings({ it.copy(beautyEyes = v) }) }
-        LabeledSlider("Лицо", face) { v -> vm.updateSettings({ it.copy(beautyFace = v) }) }
-        Text("Естественная обработка: текстура кожи сохраняется", color = Color.White.copy(alpha = 0.6f), fontSize = 11.sp)
+        // три ползунка в один ряд — панель низкая, кадр остаётся большим
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            MiniSlider("Кожа", skin, Modifier.weight(1f)) { v -> if (!on) vm.setBeauty(true); vm.updateSettings({ it.copy(beautySkin = v) }) }
+            MiniSlider("Глаза", eyes, Modifier.weight(1f)) { v -> if (!on) vm.setBeauty(true); vm.updateSettings({ it.copy(beautyEyes = v) }) }
+            MiniSlider("Лицо", face, Modifier.weight(1f)) { v -> if (!on) vm.setBeauty(true); vm.updateSettings({ it.copy(beautyFace = v) }) }
+        }
+        Text("Естественная обработка: текстура кожи сохраняется", color = Color.White.copy(alpha = 0.55f), fontSize = 10.sp)
+    }
+}
+
+/** Узкий ползунок с подписью и значением над ним. */
+@Composable
+private fun MiniSlider(label: String, value: Float, modifier: Modifier, onChange: (Float) -> Unit) {
+    Column(modifier) {
+        Row(Modifier.fillMaxWidth()) {
+            Text(label, color = Color.White, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            Text("${(value * 100).toInt()}", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp)
+        }
+        androidx.compose.material3.Slider(
+            value = value, onValueChange = onChange, modifier = Modifier.fillMaxWidth().height(28.dp),
+            colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Accent, inactiveTrackColor = Color.White.copy(alpha = 0.25f))
+        )
+    }
+}
+
+/** Компактный ползунок в одну строку: подпись — ползунок — значение. */
+@Composable
+private fun CompactSlider(label: String, value: Float, display: String, range: ClosedFloatingPointRange<Float> = 0f..1f, onChange: (Float) -> Unit) {
+    Row(Modifier.fillMaxWidth().height(36.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = Color.White, fontSize = 13.sp, modifier = Modifier.width(52.dp))
+        androidx.compose.material3.Slider(
+            value = value, onValueChange = onChange, valueRange = range, modifier = Modifier.weight(1f),
+            colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Accent, inactiveTrackColor = Color.White.copy(alpha = 0.25f))
+        )
+        Text(display, color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp, modifier = Modifier.width(40.dp).padding(start = 6.dp))
     }
 }
 

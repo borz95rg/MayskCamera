@@ -3,8 +3,6 @@ name: Build Maysk Camera APK
 on:
   push:
     branches: [ "main", "master" ]
-    tags: [ "v*" ]
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -25,15 +23,28 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # Постоянный ключ подписи из Secrets (Settings → Secrets and variables → Actions)
+      - name: Restore signing key
+        env:
+          MAYSK_KEYSTORE_BASE64: ${{ secrets.MAYSK_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$MAYSK_KEYSTORE_BASE64" ]; then
+            echo "$MAYSK_KEYSTORE_BASE64" | base64 -d > release.jks
+            echo "Ключ подписи найден"
+          else
+            echo "::warning::Secret MAYSK_KEYSTORE_BASE64 не задан — APK подписан временным ключом, автообновление не сможет установиться поверх"
+          fi
+
       - name: Build APK
+        env:
+          MAYSK_KEYSTORE_PASSWORD: ${{ secrets.MAYSK_KEYSTORE_PASSWORD }}
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon assembleDebug assembleRelease
+          ./gradlew --no-daemon assembleRelease
 
-      - name: Rename APKs
+      - name: Rename APK
         run: |
           mkdir -p out
-          cp app/build/outputs/apk/debug/app-debug.apk out/MayskCamera-debug.apk
           cp app/build/outputs/apk/release/app-release.apk out/MayskCamera.apk
 
       - name: Upload APK artifact
@@ -42,9 +53,13 @@ jobs:
           name: MayskCamera-apk
           path: out/*.apk
 
-      - name: Publish GitHub Release (for tags v*)
-        if: startsWith(github.ref, 'refs/tags/v')
+      # Каждая сборка публикуется как релиз — приложение само увидит обновление
+      - name: Publish release (auto-update)
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Maysk Camera 1.0.${{ github.run_number }}
+          body: ${{ github.event.head_commit.message }}
           files: out/MayskCamera.apk
-          generate_release_notes: true
+          make_latest: true

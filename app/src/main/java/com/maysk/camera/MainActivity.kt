@@ -21,7 +21,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.fillMaxWidth
+import android.content.Intent
+import com.maysk.camera.ui.theme.Accent
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -289,6 +295,68 @@ private fun AppRoot(vm: CameraViewModel) {
                 composable(Routes.HELP) { HelpScreen { nav.popBackStack() } }
             }
         }
+    }
+    GlobalDialogs(vm)
+}
+
+/** Диалоги поверх всех экранов: обновление и отчёт о сбое. */
+@Composable
+private fun GlobalDialogs(vm: CameraViewModel) {
+    val ctx = LocalContext.current
+    val ui by vm.ui.collectAsState()
+    val info = ui.updateAvailable
+    val progress = ui.updateProgress
+    if (progress != null) {
+        AlertDialog(
+            onDismissRequest = {},
+            confirmButton = {},
+            title = { Text("Загрузка обновления") },
+            text = {
+                Column {
+                    LinearProgressIndicator(progress = { progress }, color = Accent, modifier = Modifier.fillMaxWidth())
+                    Text("${(progress * 100).toInt()}%", modifier = Modifier.padding(top = 8.dp))
+                }
+            }
+        )
+    } else if (info != null) {
+        AlertDialog(
+            onDismissRequest = { vm.dismissUpdate() },
+            title = { Text("Доступно обновление ${info.versionName}") },
+            text = {
+                Text(
+                    "Сейчас: ${BuildConfig.VERSION_NAME}\n\n" +
+                        (info.notes.ifBlank { "Улучшения и исправления" }).take(600)
+                )
+            },
+            confirmButton = { TextButton(onClick = { vm.installUpdate() }) { Text("Обновить", color = Accent) } },
+            dismissButton = { TextButton(onClick = { vm.dismissUpdate() }) { Text("Позже") } }
+        )
+    }
+
+    // Отчёт о прошлом сбое
+    var crash by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        val f = MayskApp.crashFile(ctx)
+        if (f.exists()) crash = runCatching { f.readText() }.getOrNull().also { f.delete() }
+    }
+    crash?.let { report ->
+        AlertDialog(
+            onDismissRequest = { crash = null },
+            title = { Text("Приложение закрылось с ошибкой") },
+            text = { Text("Отправьте отчёт разработчику — это поможет быстро исправить проблему. В отчёте только техническая информация, без фото.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val i = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, "Maysk Camera — отчёт о сбое")
+                        putExtra(Intent.EXTRA_TEXT, report)
+                    }
+                    ctx.startActivity(Intent.createChooser(i, "Отправить отчёт").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    crash = null
+                }) { Text("Отправить", color = Accent) }
+            },
+            dismissButton = { TextButton(onClick = { crash = null }) { Text("Не надо") } }
+        )
     }
 }
 

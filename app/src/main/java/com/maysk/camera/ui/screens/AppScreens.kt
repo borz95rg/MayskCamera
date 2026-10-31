@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Flip
@@ -309,6 +310,7 @@ fun SettingsScreen(vm: CameraViewModel, onBack: () -> Unit, onVideo: () -> Unit,
             SettingRow(Icons.Filled.Folder, "Папка хранения", MediaStoreRepo.FOLDER) { }
 
             SectionLabel("  Дополнительно")
+            SettingRow(Icons.Filled.SystemUpdate, "Проверить обновления", "v" + BuildConfig.VERSION_NAME) { vm.checkUpdates() }
             SettingRow(Icons.Filled.School, "Помощь и обучение", onClick = onHelp)
             SettingRow(Icons.Filled.Info, "О приложении", "v" + BuildConfig.VERSION_NAME, onClick = onAbout)
             SettingRow(Icons.Filled.Refresh, "Сбросить настройки") {

@@ -308,6 +308,8 @@ class CameraController(private val context: Context) {
             _state.update { it.copy(ready = false, error = "Не удалось запустить камеру") }
             return
         }
+        imageCapture?.targetRotation = targetRotation
+        videoCapture?.targetRotation = targetRotation
         observeCamera(cam, cfg, ext, effectsOn)
         applyRequestOptions()
     }
@@ -499,6 +501,16 @@ class CameraController(private val context: Context) {
         _state.update { it.copy(evIndex = v) }
     }
 
+    private var targetRotation: Int = android.view.Surface.ROTATION_0
+
+    /** Ориентация устройства (Surface.ROTATION_*) для правильного поворота фото/видео. */
+    fun setTargetRotation(rotation: Int) {
+        if (rotation == targetRotation) return
+        targetRotation = rotation
+        imageCapture?.targetRotation = rotation
+        if (recording == null) videoCapture?.targetRotation = rotation
+    }
+
     fun setFlash(mode: Int) {
         imageCapture?.flashMode = mode
     }
@@ -527,9 +539,10 @@ class CameraController(private val context: Context) {
             else -> Pair(xn, yn)
         }
         val f = SurfaceOrientedMeteringPointFactory(1f, 1f, a)
+        // только автофокус: повторный замер экспозиции вызывал «прыжки» яркости
         cam.cameraControl.startFocusAndMetering(
-            FocusMeteringAction.Builder(f.createPoint(bx, by), FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
-                .setAutoCancelDuration(3, TimeUnit.SECONDS).build()
+            FocusMeteringAction.Builder(f.createPoint(bx, by), FocusMeteringAction.FLAG_AF)
+                .disableAutoCancel().build()
         )
     }
     // endregion

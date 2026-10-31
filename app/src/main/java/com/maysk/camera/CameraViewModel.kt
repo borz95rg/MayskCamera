@@ -81,6 +81,12 @@ data class CameraUi(
     val aiActions: List<String> = emptyList(),
     val manual: ManualSettings = ManualSettings(),
     val voiceListening: Boolean = false,
+    /** Белый экран как вспышка для селфи. */
+    val screenFlash: Boolean = false,
+    val burstCount: Int = 0,
+    val updateAvailable: com.maysk.camera.data.UpdateInfo? = null,
+    /** Прогресс загрузки обновления 0..1, null — не качается. */
+    val updateProgress: Float? = null,
 )
 
 class CameraViewModel(app: Application) : AndroidViewModel(app) {
@@ -106,8 +112,22 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private var lastFaceFocus = 0L
     private var lastAiEv = 0L
     private var aiEvOffset = 0
+    // сглаженные AI-параметры (без «прыжков» света)
+    private var faceDarkState = false
+    private var smFaceLight = 0f
+    private var smGain = 1f
+    private var smDenoise = 0f
+    private var smLift = 0f
+    private var lastFocusX = -1f
+    private var lastFocusY = -1f
 
     init {
+        // тихая проверка обновлений при запуске
+        viewModelScope.launch {
+            delay(2500)
+            val r = com.maysk.camera.data.Updater.check()
+            if (r is com.maysk.camera.data.UpdateCheck.Available) _ui.update { it.copy(updateAvailable = r.info) }
+        }
         sound.load(MediaActionSound.SHUTTER_CLICK)
         controller.analyzer = LiveAnalyzer(
             enabled = { settings.value.smartAi || _ui.value.aiPro || needsFaces() },
@@ -256,34 +276,49 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         val aiVideo = video && s.aiVideoEnabled
         if (aiVideo && s.aiVideoColor) matrix = Filters.concat(matrix, Filters.adjustments(0f, 0.04f, 0.08f, 0f))
         val l = live.value
-        val dark = l.mean < 0.25f
+        val dark = l.mean < 0.22f
         val aiOn = u.aiPro || u.mode == CameraMode.AI_AUTO
-        val faceDark = l.faces.isNotEmpty() && l.faceLuma < 0.38f
+        // гистерезис: «тёмное лицо» включается при <0.33 и выключается только при >0.42
+        if (l.faces.isEmpty()) faceDarkState = false
+        else if (!faceDarkState && l.faceLuma < 0.33f) faceDarkState = true
+        else if (faceDarkState && l.faceLuma > 0.42f) faceDarkState = false
         val beauty = when {
-            u.beautyOn -> s.beautySkin
-            aiVideo && s.aiVideoSkin -> 0.3f
+            u.beautyOn -> s.beautySkin * 0.7f
+            aiVideo && s.aiVideoSkin -> 0.25f
             else -> 0f
         }
+        val tFaceLight = when {
+            u.beautyOn && s.beautyFace > 0f -> s.beautyFace * 0.4f
+            (aiOn || (aiVideo && s.aiVideoLight)) && faceDarkState -> 0.35f
+            else -> 0f
+        }
+        val tGain = if ((aiOn || (aiVideo && s.aiVideoLight)) && dark && u.mode != CameraMode.NIGHT) 1.08f else 1f
+        val tDenoise = when {
+            u.mode == CameraMode.NIGHT -> 0.6f
+            aiVideo && s.aiVideoNoise && dark -> 0.45f
+            aiVideo && s.aiVideoNoise -> 0.1f
+            aiOn && dark -> 0.3f
+            else -> 0f
+        }
+        val tLift = if (u.mode == CameraMode.NIGHT) 0.5f else if (aiOn && dark) 0.15f else 0f
+        // плавное приближение к цели (~0.5 с), чтобы яркость не прыгала
+        val k = 0.12f
+        smFaceLight += (tFaceLight - smFaceLight) * k
+        smGain += (tGain - smGain) * k
+        smDenoise += (tDenoise - smDenoise) * k
+        smLift += (tLift - smLift) * k
+        // общий мягкий контраст как на фото
+        matrix = Filters.concat(Filters.adjustments(0f, -0.06f, 0f, 0f), matrix)
         controller.processor.params = EffectParams(
             colorMatrix = matrix,
             vignette = f.vignette * u.filterIntensity + if (u.mode == CameraMode.CINEMATIC) 0.25f else 0f,
             fade = f.fade * u.filterIntensity,
             beauty = beauty,
-            denoise = when {
-                u.mode == CameraMode.NIGHT -> 0.6f
-                aiVideo && s.aiVideoNoise && dark -> 0.5f
-                aiVideo && s.aiVideoNoise -> 0.15f
-                aiOn && dark -> 0.35f
-                else -> 0f
-            },
-            faceLight = when {
-                u.beautyOn && s.beautyFace > 0f -> s.beautyFace
-                (aiOn || (aiVideo && s.aiVideoLight)) && faceDark -> 0.6f
-                else -> 0f
-            },
-            sharpen = if (u.mode == CameraMode.LANDSCAPE || u.ultraWide || c0p5()) 0.35f else 0.15f,
-            gain = if ((aiOn || (aiVideo && s.aiVideoLight)) && dark && u.mode != CameraMode.NIGHT) 1.12f else 1f,
-            lift = if (u.mode == CameraMode.NIGHT) 0.5f else if (aiOn && dark) 0.2f else 0f,
+            denoise = smDenoise,
+            faceLight = smFaceLight,
+            sharpen = if (u.mode == CameraMode.LANDSCAPE) 0.12f else 0.04f,
+            gain = smGain,
+            lift = smLift,
             log = if (u.mode == CameraMode.LOG || (video && s.colorProfile == com.maysk.camera.data.ColorProfile.LOG)) 1f else 0f,
             effect = u.effect.id,
         )
@@ -308,26 +343,33 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 else -> null
             }
             _ui.update { it.copy(aiHint = hint, aiActions = actions) }
-            // лёгкая автокоррекция экспозиции по лицу
-            if (now - lastAiEv > 1500 && stepsPerEv() > 0) {
-                lastAiEv = now
+            // мягкая автокоррекция экспозиции: только основная камера, редко и с запасом,
+            // на фронталке экспозицию по лицу ведёт сама камера — так свет не «прыгает»
+            if (!u.front && now - lastAiEv > 3000 && stepsPerEv() > 0) {
                 val target = when {
-                    l.faces.isNotEmpty() && l.faceLuma < 0.33f -> stepsPerEv() / 2 + 1
-                    l.highlights > 0.12f && l.faces.isEmpty() -> -(stepsPerEv() / 2)
-                    else -> 0
+                    l.faces.isNotEmpty() && l.faceLuma < 0.3f -> stepsPerEv() / 2
+                    l.faces.isNotEmpty() && l.faceLuma > 0.4f -> 0
+                    l.highlights > 0.15f && l.faces.isEmpty() -> -(stepsPerEv() / 3)
+                    l.highlights < 0.08f && l.faces.isEmpty() -> 0
+                    else -> aiEvOffset
                 }
                 if (target != aiEvOffset) {
+                    lastAiEv = now
                     aiEvOffset = target
                     controller.setExposureIndex(u.mode.evBias * stepsPerEv() + target)
                 }
             }
         }
-        // фокус-трекинг лица
+        // фокус-трекинг лица: только автофокус и только если лицо заметно сместилось
         val tracking = u.mode in setOf(CameraMode.INTERVIEW, CameraMode.CINEMATIC, CameraMode.VLOG, CameraMode.PORTRAIT) || aiOn
-        if (tracking && l.faces.isNotEmpty() && now - lastFaceFocus > 2500 && u.manual.focusDiopters == null) {
-            lastFaceFocus = now
+        if (tracking && l.faces.isNotEmpty() && now - lastFaceFocus > 3000 && u.manual.focusDiopters == null && controller.minFocusDiopters() > 0f) {
             val b = l.faces.maxByOrNull { it.box.width() }!!.box
-            controller.focusOnUpright(b.centerX(), b.centerY(), l.rotation)
+            val moved = lastFocusX < 0f || kotlin.math.abs(b.centerX() - lastFocusX) > 0.08f || kotlin.math.abs(b.centerY() - lastFocusY) > 0.08f
+            if (moved) {
+                lastFaceFocus = now
+                lastFocusX = b.centerX(); lastFocusY = b.centerY()
+                controller.focusOnUpright(b.centerX(), b.centerY(), l.rotation)
+            }
         }
         updateEffect()
     }
@@ -387,16 +429,28 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     playShutter()
                     val frames = controller.captureBurst(3, mirror)
                     withContext(Dispatchers.Default) {
-                        var b = ImageOps.stackFrames(frames)
-                        if (!controller.hardwareDistortionCorrection()) b = ImageOps.undistort(b, 0.05f)
-                        ImageOps.sharpen(ImageOps.denoise(b, 0.3f), 0.6f)
+                        // самый резкий кадр + совпавшие кадры → меньше шума, детали сохраняются
+                        val b = ImageOps.smartStack(frames)
+                        ImageOps.sharpen(ImageOps.denoise(b, 0.25f), 0.15f)
+                    }
+                }
+                u.front && ext == null -> {
+                    // Селфи: вспышка экраном + серия, выбор самого резкого и сложение
+                    val useScreenFlash = u.flash == FlashMode.ON || (u.flash == FlashMode.AUTO && live.value.mean < 0.25f)
+                    if (useScreenFlash) { _ui.update { it.copy(screenFlash = true) }; delay(450) }
+                    playShutter()
+                    val frames = try { controller.captureBurst(3, mirror) } finally { _ui.update { it.copy(screenFlash = false) } }
+                    _ui.update { it.copy(busy = "AI селфи: детализация…") }
+                    withContext(Dispatchers.Default) {
+                        val b = ImageOps.smartStack(frames)
+                        ImageOps.sharpen(ImageOps.denoise(b, 0.2f), 0.12f)
                     }
                 }
                 u.mode == CameraMode.PET || u.mode == CameraMode.BABY -> {
                     playShutter()
                     val frames = controller.captureBurst(3, mirror)
                     _ui.update { it.copy(busy = "AI выбирает самый резкий кадр") }
-                    withContext(Dispatchers.Default) { frames.maxByOrNull { sharpness(it) }!! }
+                    withContext(Dispatchers.Default) { frames.maxByOrNull { ImageOps.sharpnessScore(it) }!! }
                 }
                 else -> {
                     playShutter()
@@ -419,7 +473,12 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 beautyFace = if (beauty) s.beautyFace else 0f,
                 aiAuto = u.mode == CameraMode.AI_AUTO || (u.aiPro && s.smartAi && u.mode != CameraMode.PRO),
                 portraitBlur = u.mode == CameraMode.PORTRAIT && ext != ExtensionMode.BOKEH,
-                sharpen = if (u.mode == CameraMode.MACRO || u.mode == CameraMode.CAR) 0.5f else 0f,
+                sharpen = if (u.mode == CameraMode.MACRO || u.mode == CameraMode.CAR) 0.2f else 0f,
+                clarity = when {
+                    u.front -> 0.1f
+                    u.mode == CameraMode.LANDSCAPE || u.mode == CameraMode.CAR -> 0.3f
+                    else -> 0.18f
+                },
             )
             val out = withContext(Dispatchers.Default) { PhotoPipeline.process(raw, spec) }
             val uri = MediaStoreRepo.saveJpeg(ctx, out, quality, location)
@@ -444,6 +503,43 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         return sq / n - mean * mean
     }
     // endregion
+
+    // region серия (удержание затвора)
+    private var burstJob: Job? = null
+
+    fun startBurst() {
+        val u = _ui.value
+        if (u.mode.isVideo || u.busy != null || u.mode == CameraMode.PANORAMA || u.mode == CameraMode.DOCUMENT) return
+        _ui.update { it.copy(burstCount = 0) }
+        burstJob = viewModelScope.launch {
+            val s = settings.value
+            while (isActive) {
+                val b = runCatching { controller.captureBitmap(s.mirrorFront) }.getOrNull() ?: break
+                playShutter()
+                val uri = withContext(Dispatchers.Default) {
+                    // лёгкая обработка, чтобы серия была быстрой
+                    val f = Filters.byId(_ui.value.filterId)
+                    var out = ImageOps.colorMatrix(b, Filters.concat(Filters.adjustments(0f, -0.06f, 0f, 0f), Filters.blended(f, _ui.value.filterIntensity)))
+                    out = ImageOps.vignetteAndFade(out, f.vignette, f.fade)
+                    MediaStoreRepo.saveJpeg(ctx, out, if (s.photoQualityHigh) 94 else 86, name = MediaStoreRepo.newName("BURST"))
+                }
+                _ui.update { it.copy(burstCount = it.burstCount + 1, lastUri = uri ?: it.lastUri, lastIsVideo = false) }
+                if (_ui.value.burstCount >= 30) break
+            }
+        }
+    }
+
+    fun stopBurst() {
+        burstJob?.cancel()
+        burstJob = null
+        val n = _ui.value.burstCount
+        if (n > 0) toast("Серия: $n фото")
+        _ui.update { it.copy(burstCount = 0) }
+    }
+    // endregion
+
+    /** Поворот телефона → правильная ориентация фото и видео. */
+    fun setDeviceRotation(surfaceRotation: Int) = controller.setTargetRotation(surfaceRotation)
 
     // region видео
     private fun hasMic() = ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -583,6 +679,42 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun stopVoice() {
         voice?.stop()
         _ui.update { it.copy(voiceListening = false) }
+    }
+    // endregion
+
+    // region обновления
+    /** Ручная проверка из настроек. */
+    fun checkUpdates() {
+        viewModelScope.launch {
+            sysToast("Проверяю обновления…")
+            when (val r = com.maysk.camera.data.Updater.check()) {
+                is com.maysk.camera.data.UpdateCheck.Available -> _ui.update { it.copy(updateAvailable = r.info) }
+                is com.maysk.camera.data.UpdateCheck.UpToDate -> sysToast("У вас последняя версия ${com.maysk.camera.BuildConfig.VERSION_NAME}")
+                is com.maysk.camera.data.UpdateCheck.Failed -> sysToast(r.reason)
+            }
+        }
+    }
+
+    private fun sysToast(msg: String) = android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_LONG).show()
+
+    fun dismissUpdate() = _ui.update { it.copy(updateAvailable = null) }
+
+    fun installUpdate() {
+        val info = _ui.value.updateAvailable ?: return
+        val U = com.maysk.camera.data.Updater
+        if (U.needsInstallPermission(ctx)) {
+            sysToast("Разрешите установку обновлений для Maysk Camera и нажмите «Обновить» ещё раз")
+            U.openInstallPermissionSettings(ctx)
+            return
+        }
+        viewModelScope.launch {
+            _ui.update { it.copy(updateProgress = 0f) }
+            val file = U.download(ctx, info) { p -> _ui.update { it.copy(updateProgress = p) } }
+            _ui.update { it.copy(updateProgress = null) }
+            if (file == null) { sysToast("Не удалось скачать обновление"); return@launch }
+            _ui.update { it.copy(updateAvailable = null) }
+            runCatching { U.install(ctx, file) }.onFailure { sysToast("Не удалось запустить установку: ${it.message}") }
+        }
     }
     // endregion
 

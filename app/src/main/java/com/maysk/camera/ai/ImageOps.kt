@@ -182,53 +182,130 @@ object ImageOps {
         return fromPixels(px, w, h)
     }
 
+    /** Мягкая маска кожи (YCbCr) + отсечение тёмных пикселей (волосы, брови, тени). */
     private fun isSkin(r: Int, g: Int, b: Int): Float {
+        val y = 0.299f * r + 0.587f * g + 0.114f * b
+        if (y < 75f || y > 250f) return 0f
         val cb = 128 - 0.168736f * r - 0.331264f * g + 0.5f * b
         val cr = 128 + 0.5f * r - 0.418688f * g - 0.081312f * b
-        if (cr < 128f || cr > 180f || cb < 72f || cb > 135f) return 0f
-        val ecr = 1f - abs(cr - 152f) / 28f
-        val ecb = 1f - abs(cb - 104f) / 32f
-        return (min(ecr, ecb) * 2.5f).coerceIn(0f, 1f)
+        if (cr < 132f || cr > 176f || cb < 78f || cb > 130f) return 0f
+        val ecr = 1f - abs(cr - 152f) / 24f
+        val ecb = 1f - abs(cb - 104f) / 26f
+        val lumaFade = ((y - 75f) / 30f).coerceIn(0f, 1f)
+        return (min(ecr, ecb) * 2f).coerceIn(0f, 1f) * lumaFade
+    }
+
+    private fun smoothstep(e0: Float, e1: Float, x: Float): Float {
+        val t = ((x - e0) / (e1 - e0)).coerceIn(0f, 1f)
+        return t * t * (3 - 2 * t)
     }
 
     /**
-     * AI-ретушь кожи: сглаживание только по маске кожи внутри найденных лиц,
-     * текстура сохраняется (частично возвращаем мелкие детали).
+     * AI-ретушь кожи по принципу частотного разложения:
+     * убираем средние частоты (пятна, неровности), но возвращаем мелкую текстуру (поры),
+     * поэтому кожа не становится «пластиковой». Работает только внутри найденных лиц
+     * с мягким переходом на границе — без контуров и пятен на волосах.
      */
     fun skinSmooth(src: Bitmap, strength: Float, faces: List<RectF>, brighten: Float = 0f): Bitmap {
-        if (strength <= 0.01f && brighten <= 0.01f) return src
+        if ((strength <= 0.01f && brighten <= 0.01f) || faces.isEmpty()) return src
         val w = src.width; val h = src.height
         val px = pixels(src)
-        val areas = if (faces.isEmpty()) listOf(RectF(0f, 0f, 1f, 1f)) else faces.map {
-            RectF(it.left - it.width() * 0.25f, it.top - it.height() * 0.35f, it.right + it.width() * 0.25f, it.bottom + it.height() * 0.25f)
-        }
-        val faceW = if (faces.isEmpty()) 0.25f else faces.maxOf { it.width() }
-        val r = max(2, (faceW * w / 45f * (0.6f + strength)).roundToInt())
-        val bl = boxBlur(px, w, h, r)
-        for (area in areas) {
+        val faceW = faces.maxOf { it.width() }
+        val r = max(2, (faceW * w / 60f).roundToInt())
+        val low = boxBlur(boxBlur(px, w, h, r), w, h, r)
+        val fineBase = boxBlur(px, w, h, 1)
+        val st = strength.coerceIn(0f, 1f) * 0.7f
+        for (f in faces) {
+            val area = RectF(f.left - f.width() * 0.15f, f.top - f.height() * 0.2f, f.right + f.width() * 0.15f, f.bottom + f.height() * 0.1f)
             val x0 = (area.left * w).roundToInt().coerceIn(0, w); val x1 = (area.right * w).roundToInt().coerceIn(0, w)
             val y0 = (area.top * h).roundToInt().coerceIn(0, h); val y1 = (area.bottom * h).roundToInt().coerceIn(0, h)
             val cx = (x0 + x1) / 2f; val cy = (y0 + y1) / 2f
             val rx = max(1f, (x1 - x0) / 2f); val ry = max(1f, (y1 - y0) / 2f)
             for (y in y0 until y1) for (x in x0 until x1) {
+                val ex = (x - cx) / rx; val ey = (y - cy) / ry
+                val dist = sqrt(ex * ex + ey * ey)
+                val feather = 1f - smoothstep(0.7f, 1f, dist)
+                if (feather <= 0f) continue
                 val i = y * w + x
-                val c = px[i]; val b = bl[i]
+                val c = px[i]
                 val cr = (c shr 16) and 255; val cg = (c shr 8) and 255; val cb = c and 255
                 val sk = isSkin(cr, cg, cb)
                 if (sk <= 0f) continue
-                val ex = (x - cx) / rx; val ey = (y - cy) / ry
-                val edge = (1f - (ex * ex + ey * ey)).coerceIn(0f, 1f).let { if (faces.isEmpty()) 1f else min(1f, it * 3f) }
-                val d = (abs(cr - ((b shr 16) and 255)) + abs(cg - ((b shr 8) and 255)) + abs(cb - (b and 255))) / 3f
-                val edgeKeep = exp(-(d / 22f).pow(2))
-                val k = (strength * sk * edge * edgeKeep).coerceIn(0f, 0.92f)
-                val lift = brighten * sk * edge * 22f
-                val nr = cr + (((b shr 16) and 255) - cr) * k + lift
-                val ng = cg + (((b shr 8) and 255) - cg) * k + lift
-                val nb = cb + ((b and 255) - cb) * k + lift * 0.9f
-                px[i] = (0xFF shl 24) or (clamp255(nr) shl 16) or (clamp255(ng) shl 8) or clamp255(nb)
+                val lo = low[i]; val fb = fineBase[i]
+                // текстура (мелкие детали) сохраняется на 85%
+                val tr = (cr - ((fb shr 16) and 255)) * 0.85f
+                val tg = (cg - ((fb shr 8) and 255)) * 0.85f
+                val tb = (cb - (fb and 255)) * 0.85f
+                val sr = ((lo shr 16) and 255) + tr
+                val sg = ((lo shr 8) and 255) + tg
+                val sb = (lo and 255) + tb
+                // не трогаем резкие края (брови, губы, контур)
+                val d = (abs(cr - ((lo shr 16) and 255)) + abs(cg - ((lo shr 8) and 255)) + abs(cb - (lo and 255))) / 3f
+                val edgeKeep = exp(-(d / 28f).pow(2))
+                val k = (st * sk * feather * edgeKeep).coerceIn(0f, 0.75f)
+                val lift = brighten.coerceIn(0f, 1f) * sk * feather * 12f
+                px[i] = (0xFF shl 24) or (clamp255(cr + (sr - cr) * k + lift) shl 16) or
+                    (clamp255(cg + (sg - cg) * k + lift) shl 8) or clamp255(cb + (sb - cb) * k + lift * 0.9f)
             }
         }
         return fromPixels(px, w, h)
+    }
+
+    /**
+     * Чёткость (clarity): локальный контраст средних тонов с большим радиусом.
+     * Добавляет объём и «детальность» без пересвета и шума, в отличие от резкости.
+     */
+    fun clarity(src: Bitmap, amount: Float): Bitmap {
+        if (amount <= 0.01f) return src
+        val w = src.width; val h = src.height
+        val px = pixels(src)
+        val base = pixels(fastBlur(src, max(6, min(w, h) / 90)))
+        for (i in px.indices) {
+            val c = px[i]; val b = base[i]
+            val cr = (c shr 16) and 255; val cg = (c shr 8) and 255; val cb = c and 255
+            val l = (cr * 0.299f + cg * 0.587f + cb * 0.114f) / 255f
+            val bl = (((b shr 16) and 255) * 0.299f + ((b shr 8) and 255) * 0.587f + (b and 255) * 0.114f) / 255f
+            val mid = 1f - abs(2f * l - 1f)          // сильнее в средних тонах, мягче в тенях/светах
+            val delta = (l - bl) * amount * mid * 255f * 0.9f
+            px[i] = (0xFF shl 24) or (clamp255(cr + delta) shl 16) or (clamp255(cg + delta) shl 8) or clamp255(cb + delta)
+        }
+        return fromPixels(px, w, h)
+    }
+
+    /** Оценка резкости кадра (дисперсия лапласиана) — для выбора лучшего кадра серии. */
+    fun sharpnessScore(b: Bitmap): Double {
+        val s = limitSize(b, 480)
+        val w = s.width; val h = s.height
+        val px = pixels(s)
+        fun l(i: Int) = (px[i] shr 8) and 255
+        var sum = 0.0; var sq = 0.0; var n = 0
+        for (y in 1 until h - 1) for (x in 1 until w - 1) {
+            val i = y * w + x
+            val lap = (4 * l(i) - l(i - 1) - l(i + 1) - l(i - w) - l(i + w)).toDouble()
+            sum += lap; sq += lap * lap; n++
+        }
+        if (n == 0) return 0.0
+        val mean = sum / n
+        return sq / n - mean * mean
+    }
+
+    /**
+     * Умная серия: берём самый резкий кадр как опорный и складываем с ним только
+     * кадры, которые хорошо совпали (без смаза). Так шум уходит, а детали остаются.
+     */
+    fun smartStack(frames: List<Bitmap>): Bitmap {
+        if (frames.size == 1) return frames[0]
+        val scores = frames.map { sharpnessScore(it) }
+        val best = scores.indices.maxByOrNull { scores[it] } ?: 0
+        val ref = frames[best]
+        val good = mutableListOf(ref)
+        frames.forEachIndexed { i, f ->
+            if (i == best) return@forEachIndexed
+            if (scores[i] < scores[best] * 0.75) return@forEachIndexed   // смазанный кадр — пропускаем
+            val (dx, dy) = estimateShift(ref, f)
+            if (abs(dx) < ref.width / 40 && abs(dy) < ref.height / 40) good += f
+        }
+        return if (good.size == 1) ref else stackFrames(good)
     }
 
     /** Глаза: осветление, резкость и снижение красноты вокруг точек глаз. */
@@ -250,14 +327,14 @@ object ImageOps {
                 val c = px[i]; val b = bl[i]
                 var r = ((c shr 16) and 255).toFloat(); var g = ((c shr 8) and 255).toFloat(); var bb = (c and 255).toFloat()
                 // резкость
-                r += (r - ((b shr 16) and 255)) * amount * 1.2f * fall
-                g += (g - ((b shr 8) and 255)) * amount * 1.2f * fall
-                bb += (bb - (b and 255)) * amount * 1.2f * fall
+                r += (r - ((b shr 16) and 255)) * amount * 0.5f * fall
+                g += (g - ((b shr 8) and 255)) * amount * 0.5f * fall
+                bb += (bb - (b and 255)) * amount * 0.5f * fall
                 // убрать красноту белков
                 val redness = r - (g + bb) / 2f
                 if (redness > 20f && r > 120f) r -= redness * 0.5f * amount * fall
                 // яркость
-                val lift = 18f * amount * fall
+                val lift = 9f * amount * fall
                 px[i] = (0xFF shl 24) or (clamp255(r + lift) shl 16) or (clamp255(g + lift) shl 8) or clamp255(bb + lift)
             }
         }
@@ -453,7 +530,8 @@ object ImageOps {
         val lift = ((0.35f - st.mean) * 2.5f).coerceIn(0f, 0.9f)
         out = localToneMap(out, 0.4f + lift, 0.5f, 0.2f)
         out = denoise(out, 0.7f)
-        return sharpen(out, 0.4f)
+        out = clarity(out, 0.15f)
+        return sharpen(out, 0.15f)
     }
 
     /** Коррекция дисторсии широкоугольника (бочка) через сетку. k > 0 — выпрямление. */

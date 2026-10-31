@@ -23,6 +23,7 @@ data class EnhancePlan(
     val filterId: String?,
     val faces: List<FaceInfo>,
     val suggestedSettings: List<Pair<String, String>>,
+    val clarity: Float = 0.2f,
 )
 
 object AiEnhancer {
@@ -53,14 +54,20 @@ object AiEnhancer {
         val saturation = ((0.3f - st.saturation) * 1.5f).coerceIn(-0.1f, 0.35f) + if (v.scene == SceneType.FOOD) 0.15f else 0f
         val warmth = (-warmCast * 1.5f).coerceIn(-0.4f, 0.4f) + if (v.scene == SceneType.PORTRAIT) 0.05f else 0f
         val denoise = if (st.mean < 0.3f) 0.6f else 0.15f
+        // Резкость умеренная, детали добавляет «чёткость» (локальный контраст)
         val sharpen = when (v.scene) {
-            SceneType.LANDSCAPE, SceneType.CITY, SceneType.DOCUMENT, SceneType.CAR -> 0.8f
-            SceneType.PORTRAIT, SceneType.BABY -> 0.25f
-            else -> 0.5f
+            SceneType.LANDSCAPE, SceneType.CITY, SceneType.DOCUMENT, SceneType.CAR -> 0.3f
+            SceneType.PORTRAIT, SceneType.BABY, SceneType.GROUP -> 0.08f
+            else -> 0.18f
         }
-        val skin = if (v.faces.isNotEmpty()) 0.35f else 0f
-        val faceLight = if (faceDark) 0.6f else if (v.faces.isNotEmpty()) 0.2f else 0f
-        val eyes = if (v.faces.isNotEmpty()) 0.35f else 0f
+        val clarity = when (v.scene) {
+            SceneType.LANDSCAPE, SceneType.CITY, SceneType.CAR, SceneType.SKY -> 0.35f
+            SceneType.PORTRAIT, SceneType.BABY, SceneType.GROUP -> 0.12f
+            else -> 0.25f
+        }
+        val skin = if (v.faces.isNotEmpty()) 0.25f else 0f
+        val faceLight = if (faceDark) 0.45f else if (v.faces.isNotEmpty()) 0.1f else 0f
+        val eyes = if (v.faces.isNotEmpty()) 0.25f else 0f
         val filterId = when (v.scene) {
             SceneType.FOOD -> "food"
             SceneType.LANDSCAPE, SceneType.SKY -> "nature"
@@ -79,7 +86,7 @@ object AiEnhancer {
         if (denoise > 0.3f) rec += "Шумоподавление"
         if (warmth > 0.08f) rec += "Тёплый цвет" else if (warmth < -0.08f) rec += "Холодный цвет"
         if (saturation > 0.1f) rec += "Насыщенность +"
-        if (sharpen > 0.6f) rec += "Детализация"
+        if (clarity > 0.2f) rec += "Чёткость"
         filterId?.let { rec += "Фильтр «${Filters.byId(it).name}»" }
 
         val iso = when { st.mean < 0.15f -> "1600"; st.mean < 0.3f -> "800"; st.mean < 0.5f -> "200"; else -> "100" }
@@ -94,7 +101,7 @@ object AiEnhancer {
 
         return EnhancePlan(
             v.scene, detected.filter { it.isNotBlank() }, rec, levels, shadows, highlights, saturation, warmth,
-            sharpen, denoise, skin, faceLight, eyes, filterId, v.faces, suggested
+            sharpen, denoise, skin, faceLight, eyes, filterId, v.faces, suggested, clarity
         )
     }
 
@@ -102,9 +109,11 @@ object AiEnhancer {
     fun apply(src: Bitmap, p: EnhancePlan, withFilter: Boolean = true): Bitmap {
         var out = src
         if (p.denoise > 0.05f) out = ImageOps.denoise(out, p.denoise)
-        out = ImageOps.colorMatrix(out, ImageOps.autoLevelsMatrix(ImageOps.stats(out), p.levels))
-        out = ImageOps.localToneMap(out, p.shadows, p.highlights, 0.3f)
-        out = ImageOps.colorMatrix(out, Filters.adjustments(0f, 0.05f, p.saturation, p.warmth))
+        out = ImageOps.colorMatrix(out, ImageOps.autoLevelsMatrix(ImageOps.stats(out), minOf(p.levels, 0.6f)))
+        out = ImageOps.localToneMap(out, p.shadows, p.highlights, 0.12f)
+        // чуть ниже контраст — мягкая, естественная картинка
+        out = ImageOps.colorMatrix(out, Filters.adjustments(0f, -0.08f, p.saturation, p.warmth))
+        out = ImageOps.clarity(out, p.clarity)
         val faces = p.faces.map { it.box }
         if (p.skin > 0f || p.faceLight > 0f) out = ImageOps.skinSmooth(out, p.skin, faces, p.faceLight)
         val eyes = p.faces.flatMap { it.eyes }
@@ -127,6 +136,10 @@ data class PhotoSpec(
     val portraitBlur: Boolean = false,
     val undistort: Float = 0f,
     val sharpen: Float = 0f,
+    /** Чёткость средних тонов (детали без пересвета). */
+    val clarity: Float = 0.15f,
+    /** Общая коррекция контраста: отрицательное — мягче. */
+    val contrast: Float = -0.06f,
 )
 
 object PhotoPipeline {
@@ -137,18 +150,25 @@ object PhotoPipeline {
 
         if (spec.undistort > 0f) out = ImageOps.undistort(out, spec.undistort)
         if (spec.aiAuto) {
-            val plan = AiEnhancer.plan(out)
+            var plan = AiEnhancer.plan(out)
+            // если включена «Красота», ретушь делает только она — без двойной обработки кожи
+            if (needFaces) plan = plan.copy(skin = 0f, eyes = 0f, faceLight = minOf(plan.faceLight, 0.2f))
             out = AiEnhancer.apply(out, plan, withFilter = spec.filterId == "original")
         }
         if (spec.portraitBlur) {
             Vision.personMask(ImageOps.limitSize(out, 512))?.let { (m, w, h) -> out = ImageOps.blurBackground(out, m, w, h, 0.8f) }
         }
         if (faces.isNotEmpty()) {
-            if (spec.beautyFace > 0f) faces.forEach { out = ImageOps.slimFace(out, it.box, spec.beautyFace) }
-            if (spec.beautySkin > 0f) out = ImageOps.skinSmooth(out, spec.beautySkin, faces.map { it.box }, spec.beautyFace * 0.3f)
+            // ползунки 0..100% переводятся в естественный диапазон, чтобы даже 100% не давало «маску»
+            if (spec.beautyFace > 0f) faces.forEach { out = ImageOps.slimFace(out, it.box, spec.beautyFace * 0.45f) }
+            if (spec.beautySkin > 0f) out = ImageOps.skinSmooth(out, spec.beautySkin, faces.map { it.box }, spec.beautyFace * 0.4f)
             val eyes = faces.flatMap { it.eyes }
             if (spec.beautyEyes > 0f && eyes.isNotEmpty())
-                out = ImageOps.enhanceEyes(out, eyes, faces.maxOf { it.box.width() } * 0.09f, spec.beautyEyes)
+                out = ImageOps.enhanceEyes(out, eyes, faces.maxOf { it.box.width() } * 0.07f, spec.beautyEyes * 0.6f)
+        }
+        if (!spec.aiAuto) {
+            if (spec.contrast != 0f) out = ImageOps.colorMatrix(out, Filters.adjustments(0f, spec.contrast, 0f, 0f))
+            out = ImageOps.clarity(out, spec.clarity)
         }
         if (spec.sharpen > 0f) out = ImageOps.sharpen(out, spec.sharpen)
         val f = Filters.byId(spec.filterId)

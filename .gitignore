@@ -10,3 +10,7 @@
 .cxx/
 *.keystore
 !debug.keystore
+
+# ключ подписи — только в GitHub Secrets
+*.jks
+release.jks

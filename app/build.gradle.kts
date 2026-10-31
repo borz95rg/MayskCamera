@@ -12,17 +12,34 @@ android {
         applicationId = "com.maysk.camera"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // Номер сборки GitHub Actions = номер версии → приложение понимает, что вышло обновление
+        val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = build
+        versionName = "1.0.$build"
         vectorDrawables { useSupportLibrary = true }
+        // Репозиторий, откуда приходят обновления (подставляется автоматически в GitHub Actions)
+        buildConfigField("String", "UPDATE_REPO", "\"${System.getenv("GITHUB_REPOSITORY") ?: ""}\"")
+    }
+
+    // Постоянный ключ подписи из GitHub Secrets — без него обновления не ставятся поверх старой версии
+    val keystoreFile = rootProject.file("release.jks")
+    val keystorePass = System.getenv("MAYSK_KEYSTORE_PASSWORD")
+    val hasReleaseKey = keystoreFile.exists() && !keystorePass.isNullOrBlank()
+    signingConfigs {
+        create("maysk") {
+            if (hasReleaseKey) {
+                storeFile = keystoreFile
+                storePassword = keystorePass
+                keyAlias = "maysk"
+                keyPassword = keystorePass
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Подписываем debug-ключом, чтобы APK из GitHub Actions сразу устанавливался.
-            // Для Google Play замените на свой ключ (см. README).
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseKey) signingConfigs.getByName("maysk") else signingConfigs.getByName("debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

@@ -86,8 +86,10 @@ object Vision {
     }.getOrNull()
 
     fun classify(labels: List<Pair<String, Float>>, faces: Int, meanLuma: Float): SceneType {
-        val names = labels.map { it.first.lowercase() }
+        val names = labels.filter { it.second >= 0.65f }.map { it.first.lowercase() }
+        val strong = labels.filter { it.second >= 0.85f }.map { it.first.lowercase() }
         fun has(vararg k: String) = names.any { n -> k.any { n.contains(it) } }
+        fun hasStrong(vararg k: String) = strong.any { n -> k.any { n.contains(it) } }
         return when {
             meanLuma < 0.16f -> SceneType.NIGHT
             has("baby", "infant", "toddler") -> SceneType.BABY
@@ -96,7 +98,7 @@ object Vision {
             has("food", "dish", "cuisine", "dessert", "fruit", "cake", "bread", "pizza", "meal", "vegetable") -> SceneType.FOOD
             has("dog", "cat", "pet", "bird", "horse", "animal") -> SceneType.PET
             has("car", "vehicle", "wheel", "motorcycle") -> SceneType.CAR
-            has("paper", "receipt", "document", "text", "poster", "menu") -> SceneType.DOCUMENT
+            hasStrong("receipt", "document", "menu") || (hasStrong("paper") && hasStrong("text")) -> SceneType.DOCUMENT
             has("flower", "petal", "plant", "insect", "butterfly") -> SceneType.FLOWER
             has("sunset", "dusk", "sunrise") -> SceneType.SUNSET
             has("building", "skyscraper", "city", "tower", "bridge") -> SceneType.CITY
