@@ -49,6 +49,11 @@ data class EffectParams(
     val focus: FloatArray = floatArrayOf(0.5f, 0.5f, 0.2f, 0f),
     /** Рамка, рисуемая прямо в кадр (превью и запись видео). */
     val frame: com.maysk.camera.camera.FrameSpec? = null,
+    /** AR-маска и последние координаты ML Kit. Этот слой композится в PREVIEW и VIDEO_CAPTURE. */
+    val arMask: com.maysk.camera.camera.ArMask = com.maysk.camera.camera.ArMask.NONE,
+    val arFaces: List<com.maysk.camera.ai.FaceInfo> = emptyList(),
+    val arMirror: Boolean = false,
+    val arTime: Float = 0f,
     /** Временное шумоподавление (ночное видео), 0..0.85. */
     val temporal: Float = 0f,
 )
@@ -100,17 +105,40 @@ class GlEffectProcessor : SurfaceProcessor {
     private val ovM = FloatArray(16)
     private val identity = FloatArray(16).also { android.opengl.Matrix.setIdentityM(it, 0) }
 
-    /** Рисует слой рамки размером с превью и загружает в текстуру (только при смене рамки/размера). */
-    private fun ensureOverlay(spec: com.maysk.camera.camera.FrameSpec, pw: Int, ph: Int): Boolean {
-        val k = 720f / maxOf(pw, ph).coerceAtLeast(1)
-        val w = (pw * minOf(1f, k * 1.5f)).toInt().coerceAtLeast(16)
-        val h = (ph * minOf(1f, k * 1.5f)).toInt().coerceAtLeast(16)
-        val key = Triple(spec, w, h)
+    /** Композитит рамку и AR-маску в одну текстуру. Она проходит через CameraEffect,
+     * поэтому одинаково попадает в Preview и в закодированный VIDEO_CAPTURE. */
+    private fun ensureOverlay(
+        spec: com.maysk.camera.camera.FrameSpec?, mask: com.maysk.camera.camera.ArMask,
+        faces: List<com.maysk.camera.ai.FaceInfo>, mirror: Boolean, time: Float, pw: Int, ph: Int
+    ): Boolean {
+        val k = 640f / maxOf(pw, ph).coerceAtLeast(1)
+        val w = (pw * minOf(1f, k)).toInt().coerceAtLeast(16)
+        val h = (ph * minOf(1f, k)).toInt().coerceAtLeast(16)
+        val key = listOf(spec, mask, faces, mirror, (time * 12f).toInt(), w, h)
         if (key == ovKey && ovTex != 0) return true
-        val bmp = runCatching { com.maysk.camera.camera.Frames.previewOverlay(w, h, spec) }.getOrNull() ?: return false
-        if (ovTex == 0) {
-            val t = IntArray(1); GLES20.glGenTextures(1, t, 0); ovTex = t[0]
-        }
+        val bmp = runCatching {
+            android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888).also { b ->
+                val c = android.graphics.Canvas(b)
+                if (spec != null) {
+                    val frame = com.maysk.camera.camera.Frames.previewOverlay(w, h, spec)
+                    c.drawBitmap(frame, 0f, 0f, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+                    frame.recycle()
+                }
+                if (mask != com.maysk.camera.camera.ArMask.NONE && faces.isNotEmpty()) {
+                    // ML Kit координаты нормализованы по вертикальному кадру; сохраняем ту же
+                    // геометрию кадрирования, что и в живом Compose-предпросмотре.
+                    val frameAspect = 0.75f
+                    val va = w.toFloat() / h.toFloat()
+                    val fx = if (va < frameAspect) va / frameAspect else 1f
+                    val fy = if (va > frameAspect) frameAspect / va else 1f
+                    val cw = w / fx; val ch = h / fy
+                    val ox = -(1f - fx) / 2f * cw
+                    val oy = -(1f - fy) / 2f * ch
+                    faces.forEach { f -> com.maysk.camera.camera.ArMasks.draw(c, mask, f, cw, ch, ox, oy, mirror, time) }
+                }
+            }
+        }.getOrNull() ?: return false
+        if (ovTex == 0) { val t = IntArray(1); GLES20.glGenTextures(1, t, 0); ovTex = t[0] }
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ovTex)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
@@ -325,11 +353,12 @@ class GlEffectProcessor : SurfaceProcessor {
         var ovReady = false
         val spec = p.frame
         val previewOut = outputs.keys.firstOrNull { (it.targets and CameraEffect.PREVIEW) != 0 }
-        if (spec != null && previewOut != null) {
+        val hasAr = p.arMask != com.maysk.camera.camera.ArMask.NONE && p.arFaces.isNotEmpty()
+        if ((spec != null || hasAr) && previewOut != null) {
             previewOut.updateTransformMatrix(previewM, texMatrix)
             if (android.opengl.Matrix.invertM(previewInv, 0, previewM, 0)) {
                 EGL14.eglMakeCurrent(display, pbuffer, pbuffer, context)
-                ovReady = ensureOverlay(spec, previewOut.size.width, previewOut.size.height)
+                ovReady = ensureOverlay(spec, p.arMask, p.arFaces, p.arMirror, p.arTime, previewOut.size.width, previewOut.size.height)
             }
         }
 

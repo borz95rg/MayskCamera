@@ -514,6 +514,10 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             warmSat = maxOf(f.warmSat * u.filterIntensity, modeWarmSat(u.mode)),
             focus = portraitFocus(u, l),
             frame = u.frame?.takeIf { !it.style.photoOnly } ?: modeFrame(u.mode),
+            arMask = u.arMask,
+            arFaces = l.faces,
+            arMirror = u.front,
+            arTime = android.os.SystemClock.elapsedRealtime() / 1000f,
             // ночное видео: накопление кадров по времени убирает «кипящий» шум в тенях
             // шумодав по времени: вес ~0.65 ≈ усреднение 3–4 последних кадров, движущееся берётся из текущего
             temporal = when {

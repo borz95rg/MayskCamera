@@ -337,8 +337,8 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
             ui.frame?.takeIf { !(isVideo && it.style.photoOnly) && (!cam.effectsActive || it.style.photoOnly) }?.let { FrameLiveOverlay(it) }
             if (settings.grid) GridOverlay()
             if (settings.horizon && !recordingNow) HorizonOverlay()
-            if (ui.arMask != com.maysk.camera.camera.ArMask.NONE) ArMaskOverlay(live.faces, ui.arMask, cam.front)
-            else FaceOverlay(live.faces.map { it.box }, cam.front)
+            if (ui.arMask != com.maysk.camera.camera.ArMask.NONE && !cam.effectsActive) ArMaskOverlay(live.faces, ui.arMask, cam.front)
+            else if (ui.arMask == com.maysk.camera.camera.ArMask.NONE) FaceOverlay(live.faces.map { it.box }, cam.front)
             if (ui.snapDrawing.isNotEmpty() || ui.snapDrawMode) Canvas(
                 Modifier.fillMaxSize().pointerInput(ui.snapDrawMode) {
                     if (ui.snapDrawMode) detectDragGestures(
