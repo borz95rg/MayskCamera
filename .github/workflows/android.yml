@@ -35,7 +35,7 @@ jobs:
             echo "::warning::Secret MAYSK_KEYSTORE_BASE64 не задан — APK подписан временным ключом, автообновление не сможет установиться поверх"
           fi
 
-      - name: Unit tests (3D-маски: GLB, координаты, трекинг)
+      - name: "Unit tests (3D masks, GLB, face tracking)"
         run: |
           chmod +x ./gradlew
           ./gradlew --no-daemon testReleaseUnitTest
