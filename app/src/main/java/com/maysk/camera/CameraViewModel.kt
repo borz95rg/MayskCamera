@@ -367,7 +367,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setFrame(f: com.maysk.camera.camera.FrameSpec?) { _ui.update { it.copy(frame = f) }; updateEffect() }
     fun setArMask(m: com.maysk.camera.camera.ArMask) = _ui.update { it.copy(arMask = m) }
     fun setSnapMode(enabled: Boolean) = _ui.update { it.copy(snapMode = enabled) }
-    fun setSnapDuration(seconds: Int) = _ui.update { it.copy(snapSeconds = seconds.coerceIn(3, 30)) }
+    fun setSnapDuration(seconds: Int) = _ui.update { it.copy(snapSeconds = if (seconds in setOf(3, 5, 10, 30)) seconds else 10) }
     fun setSnapCaption(value: String) = _ui.update { it.copy(snapCaption = value.take(80)) }
     fun setSnapDrawMode(enabled: Boolean) = _ui.update { it.copy(snapDrawMode = enabled) }
     fun clearSnapDrawing() = _ui.update { it.copy(snapDrawing = emptyList()) }
@@ -383,6 +383,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private val snapVault by lazy { com.maysk.camera.media.SnapVault(ctx) }
     fun pendingSnaps() = snapVault.pending()
     fun consumeSnap(id: String) = snapVault.consumeOnce(id)
+    fun saveSnapToGallery(id: String) = snapVault.saveToGallery(id)
+    fun deleteSnap(id: String) = snapVault.delete(id)
     fun startRecordingHold() { if (!_ui.value.mode.recordsVideo) return; if (!cam.value.recording) startRecording() }
     fun stopRecordingHold() { if (cam.value.recording) stopRecording() }
     fun setDualLayout(l: DualLayout) = _ui.update { it.copy(dualLayout = l) }

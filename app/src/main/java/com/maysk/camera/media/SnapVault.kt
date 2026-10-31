@@ -1,6 +1,9 @@
 package com.maysk.camera.media
 
 import android.content.Context
+import android.content.ContentValues
+import android.os.Build
+import android.provider.MediaStore
 import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Base64
@@ -51,7 +54,7 @@ class SnapVault(context: Context) {
     }
 
     @Synchronized fun save(bitmap: Bitmap, durationSeconds: Int = 10): Entry {
-        require(durationSeconds in 3..30)
+        require(durationSeconds in setOf(3, 5, 10, 30))
         cleanupExpired()
         val id = "snap_" + java.util.UUID.randomUUID().toString().replace("-", "")
         val bytes = ByteArrayOutputStream().use { out -> bitmap.compress(Bitmap.CompressFormat.JPEG, 92, out); out.toByteArray() }
@@ -68,7 +71,7 @@ class SnapVault(context: Context) {
 
     /** Encrypt a recorded MP4 as a stream; the unencrypted source remains in MediaStore until save succeeds. */
     @Synchronized fun saveVideo(sourceUri: Uri, durationSeconds: Int = 10): Entry? {
-        require(durationSeconds in 3..30)
+        require(durationSeconds in setOf(3, 5, 10, 30))
         cleanupExpired()
         val id = "snap_" + java.util.UUID.randomUUID().toString().replace("-", "")
         val target = File(dir, "$id.bin")
@@ -90,16 +93,68 @@ class SnapVault(context: Context) {
         }
     }
 
+
+    /** Перенос Snap в обычную системную галерею. Исходник удаляется только после успешной записи. */
+    @Synchronized fun saveToGallery(id: String): Uri? {
+        cleanupExpired()
+        if (!id.matches(Regex("snap_[a-f0-9]{32}"))) return null
+        val source = File(dir, "$id.bin")
+        val expires = prefs.getLong("$id.expires", 0L)
+        if (!source.isFile || expires <= System.currentTimeMillis()) return null
+        val isVideo = prefs.getBoolean("$id.video", false)
+        val mime = if (isVideo) "video/mp4" else "image/jpeg"
+        val collection = if (isVideo) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val name = if (isVideo) "Maysk_Snap_${System.currentTimeMillis()}.mp4" else "Maysk_Snap_${System.currentTimeMillis()}.jpg"
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, mime)
+            if (Build.VERSION.SDK_INT >= 29) {
+                put(MediaStore.MediaColumns.RELATIVE_PATH, if (isVideo) "Movies/MayskCamera" else "Pictures/MayskCamera")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+        }
+        val destination = app.contentResolver.insert(collection, values) ?: return null
+        return try {
+            source.inputStream().use { raw ->
+                val nonce = ByteArray(12)
+                require(raw.read(nonce) == 12)
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, nonce)) }
+                CipherInputStream(raw, cipher).use { decrypted ->
+                    app.contentResolver.openOutputStream(destination, "w")?.use { output -> decrypted.copyTo(output) }
+                        ?: throw IllegalStateException("Не удалось открыть файл галереи")
+                }
+            }
+            if (Build.VERSION.SDK_INT >= 29) {
+                val ready = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
+                app.contentResolver.update(destination, ready, null, null)
+            }
+            source.delete()
+            prefs.edit().remove("$id.expires").remove("$id.duration").remove("$id.video").apply()
+            destination
+        } catch (_: Exception) {
+            runCatching { app.contentResolver.delete(destination, null, null) }
+            null
+        }
+    }
+
+    /** Удаляет Snap из закрытого хранилища без создания открытой копии. */
+    @Synchronized fun delete(id: String): Boolean {
+        if (!id.matches(Regex("snap_[a-f0-9]{32}"))) return false
+        val removed = File(dir, "$id.bin").delete()
+        prefs.edit().remove("$id.expires").remove("$id.duration").remove("$id.video").apply()
+        return removed
+    }
+
     /** One-view semantics: encrypted source is deleted before the decrypted temporary file is returned. */
     @Synchronized fun consumeOnce(id: String): Uri? {
         cleanupExpired()
         val expires = prefs.getLong("$id.expires", 0L)
         val source = File(dir, "$id.bin")
         if (!id.matches(Regex("snap_[a-f0-9]{32}")) || expires <= System.currentTimeMillis() || !source.isFile) return null
+        val isVideo = prefs.getBoolean("$id.video", false)
+        val output = File(app.cacheDir, "$id-view.${if (isVideo) "mp4" else "jpg"}")
         return try {
-            val isVideo = prefs.getBoolean("$id.video", false)
-            val viewSeconds = prefs.getInt("$id.duration", 10).coerceIn(3, 30)
-            val output = File(app.cacheDir, "$id-view.${if (isVideo) "mp4" else "jpg"}")
+            val viewSeconds = prefs.getInt("$id.duration", 10).let { if (it in setOf(3, 5, 10, 30)) it else 10 }
             source.inputStream().use { raw ->
                 val nonce = ByteArray(12)
                 require(raw.read(nonce) == 12)
@@ -111,7 +166,12 @@ class SnapVault(context: Context) {
             prefs.edit().remove("$id.expires").remove("$id.duration").remove("$id.video").apply()
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ output.delete() }, viewSeconds * 1000L)
             Uri.fromFile(output)
-        } catch (_: Exception) { source.delete(); prefs.edit().remove("$id.expires").remove("$id.duration").remove("$id.video").apply(); null }
+        } catch (_: Exception) {
+            output.delete()
+            source.delete()
+            prefs.edit().remove("$id.expires").remove("$id.duration").remove("$id.video").apply()
+            null
+        }
     }
 
     @Synchronized fun cleanupExpired() {

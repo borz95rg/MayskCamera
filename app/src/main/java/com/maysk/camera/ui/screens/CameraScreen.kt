@@ -1089,23 +1089,54 @@ private fun ArMaskOverlay(faces: List<com.maysk.camera.ai.FaceInfo>, mask: com.m
 @Composable
 private fun SnapPanel(vm: CameraViewModel, enabled: Boolean, seconds: Int, openViewer: (Uri, Boolean) -> Unit) {
     var refresh by remember { mutableIntStateOf(0) }
+    var busyId by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
     val entries = remember(refresh) { vm.pendingSnaps() }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
             Text("Исчезающие фото и видео", color = Color.White, fontWeight = FontWeight.SemiBold)
             Pill(if (enabled) "Режим включён" else "Режим выключен", enabled) { vm.setSnapMode(!enabled) }
         }
-        Text("Фото и завершённые видео хранятся зашифрованными до 24 часов; после первого открытия временная копия удаляется по таймеру. Внешняя запись экрана не блокируется.", color = Color.LightGray, fontSize = 11.sp)
+        Text("Закрытое зашифрованное хранилище отдельно от обычной галереи. Неоткрытые Snap хранятся до 24 часов. При открытии исходник удаляется, временная копия — через выбранное время.", color = Color.LightGray, fontSize = 11.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(3, 5, 10, 30).forEach { n -> Pill("${n}с", seconds == n) { vm.setSnapDuration(n) } }
         }
-        Text("Ожидают просмотра: ${entries.size}", color = Color.White, fontSize = 12.sp)
+        Text("Галерея Snap · ожидают просмотра: ${entries.size}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        if (entries.isEmpty()) {
+            Text("Здесь появятся исчезающие фото и видео. Обычные снимки находятся в разделе «Галерея».", color = Color.LightGray, fontSize = 11.sp)
+        }
         entries.forEach { entry ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("${if (entry.isVideo) "Видео" else "Фото"} Snap ${entry.id.takeLast(6)} · просмотр ${entry.durationSeconds} сек.", color = Color.White, fontSize = 12.sp)
-                Button(onClick = { vm.consumeSnap(entry.id)?.let { openViewer(it, entry.isVideo) }; refresh++ }) { Text("Открыть 1 раз") }
+            Column(Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(10.dp)).padding(9.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("${if (entry.isVideo) "Видео" else "Фото"} · ${entry.id.takeLast(6)} · таймер ${entry.durationSeconds} сек.", color = Color.White, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(enabled = busyId == null, onClick = {
+                        busyId = entry.id
+                        scope.launch {
+                            val uri = withContext(kotlinx.coroutines.Dispatchers.IO) { vm.consumeSnap(entry.id) }
+                            busyId = null
+                            refresh++
+                            if (uri != null) openViewer(uri, entry.isVideo)
+                            else android.widget.Toast.makeText(context, "Snap уже удалён или срок хранения истёк", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }, modifier = Modifier.weight(1f)) { Text("Открыть 1 раз", fontSize = 11.sp) }
+                    Button(enabled = busyId == null, onClick = {
+                        busyId = entry.id
+                        scope.launch {
+                            val uri = withContext(kotlinx.coroutines.Dispatchers.IO) { vm.saveSnapToGallery(entry.id) }
+                            busyId = null
+                            refresh++
+                            android.widget.Toast.makeText(context, if (uri != null) "Сохранено в обычную галерею" else "Не удалось сохранить Snap", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }, modifier = Modifier.weight(1f)) { Text("Сохранить", fontSize = 11.sp) }
+                    Button(enabled = busyId == null, onClick = {
+                        vm.deleteSnap(entry.id)
+                        refresh++
+                    }, modifier = Modifier.weight(0.8f)) { Text("Удалить", fontSize = 11.sp) }
+                }
             }
         }
+        if (busyId != null) Text("Обработка Snap…", color = Accent, fontSize = 11.sp)
     }
 }
 
