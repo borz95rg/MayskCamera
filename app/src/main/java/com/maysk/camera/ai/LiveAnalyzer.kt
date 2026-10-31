@@ -54,7 +54,7 @@ class LiveAnalyzer(
                 lastThumb = now
                 runCatching {
                     val small = ImageOps.limitSize(bmp, 200)
-                    onThumb.invoke(if (rotation != 0) ImageOps.rotate(small, rotation) else small)
+                    onThumb?.invoke(if (rotation != 0) ImageOps.rotate(small, rotation) else small)
                 }
             }
             val diff = if (prevMean < 0) 0f else abs(st.mean - prevMean)
