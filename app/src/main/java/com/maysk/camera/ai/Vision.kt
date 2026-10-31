@@ -21,7 +21,23 @@ enum class SceneType(val title: String) {
     BABY("Ребёнок"), SKY("Небо")
 }
 
-data class FaceInfo(val box: RectF, val eyes: List<PointF>, val smiling: Float)
+/**
+ * Лицо в нормализованных координатах (0..1) вертикального кадра.
+ * [roll] — наклон головы (градусы), [nose]/[mouth] — точки для AR-масок.
+ */
+data class FaceInfo(
+    val box: RectF,
+    val eyes: List<PointF>,
+    val smiling: Float,
+    val nose: PointF? = null,
+    val mouth: PointF? = null,
+    val mouthLeft: PointF? = null,
+    val mouthRight: PointF? = null,
+    val leftEar: PointF? = null,
+    val rightEar: PointF? = null,
+    val roll: Float = 0f,
+    val yaw: Float = 0f,
+)
 
 data class VisionResult(
     val faces: List<FaceInfo>,
@@ -35,6 +51,7 @@ object Vision {
         FaceDetection.getClient(
             FaceDetectorOptions.Builder()
                 .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
                 .setMinFaceSize(0.12f)
                 .build()
         )
@@ -62,11 +79,19 @@ object Vision {
         val list = runCatching { client.process(InputImage.fromBitmap(bitmap, rotation)).await() }.getOrDefault(emptyList())
         return list.map { f ->
             val b = f.boundingBox
-            val eyes = listOfNotNull(f.getLandmark(FaceLandmark.LEFT_EYE), f.getLandmark(FaceLandmark.RIGHT_EYE))
-                .map { PointF(it.position.x / uprightW, it.position.y / uprightH) }
+            fun lm(type: Int): PointF? = f.getLandmark(type)?.let { PointF(it.position.x / uprightW, it.position.y / uprightH) }
+            val eyes = listOfNotNull(lm(FaceLandmark.LEFT_EYE), lm(FaceLandmark.RIGHT_EYE))
             FaceInfo(
                 RectF(b.left.toFloat() / uprightW, b.top.toFloat() / uprightH, b.right.toFloat() / uprightW, b.bottom.toFloat() / uprightH),
-                eyes, f.smilingProbability ?: 0f
+                eyes, f.smilingProbability ?: 0f,
+                nose = lm(FaceLandmark.NOSE_BASE),
+                mouth = lm(FaceLandmark.MOUTH_BOTTOM),
+                mouthLeft = lm(FaceLandmark.MOUTH_LEFT),
+                mouthRight = lm(FaceLandmark.MOUTH_RIGHT),
+                leftEar = lm(FaceLandmark.LEFT_EAR),
+                rightEar = lm(FaceLandmark.RIGHT_EAR),
+                roll = f.headEulerAngleZ,
+                yaw = f.headEulerAngleY,
             )
         }
     }

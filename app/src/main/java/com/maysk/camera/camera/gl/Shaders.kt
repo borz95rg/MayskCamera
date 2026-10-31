@@ -185,6 +185,61 @@ void main() {
             float flake = smoothstep(0.09 - fl * 0.02, 0.0, length(f - ctr)) * step(0.65, rand(cell + fl + 9.1));
             c = mix(c, vec3(1.0), flake * 0.9);
         }
+    } else if (uEffect == 10) {
+        // конфетти
+        for (int l = 0; l < 2; l++) {
+            float fl = float(l);
+            float sc = 9.0 + fl * 6.0;
+            vec2 uv = vPos * vec2(sc * uAspect, sc);
+            uv.y += uTime * (0.6 + fl * 0.3);
+            vec2 cell = floor(uv);
+            vec2 f = fract(uv) - vec2(rand(cell + fl), rand(cell + 2.7 + fl));
+            float ang = uTime * 3.0 + rand(cell) * 6.28;
+            vec2 r = vec2(f.x * cos(ang) - f.y * sin(ang), f.x * sin(ang) + f.y * cos(ang));
+            float piece = step(abs(r.x), 0.07) * step(abs(r.y), 0.035) * step(0.55, rand(cell + 5.0 + fl));
+            c = mix(c, hue(rand(cell + 9.0)), piece);
+        }
+    } else if (uEffect == 11) {
+        // звёзды: мерцание
+        vec2 uv = vPos * vec2(14.0 * uAspect, 14.0);
+        vec2 cell = floor(uv);
+        vec2 f = fract(uv) - vec2(rand(cell), rand(cell + 1.3));
+        float tw = 0.5 + 0.5 * sin(uTime * 3.0 + rand(cell) * 10.0);
+        float star = (0.004 / (abs(f.x * f.y) + 0.002)) * smoothstep(0.25, 0.0, length(f)) * step(0.82, rand(cell + 4.0)) * tw;
+        c += vec3(1.0, 0.95, 0.8) * min(star, 1.0) * 0.8;
+    } else if (uEffect == 12) {
+        // листопад
+        vec2 uv = vPos * vec2(7.0 * uAspect, 7.0);
+        uv.y += uTime * 0.35;
+        uv.x += sin(uTime + uv.y * 1.5) * 0.25;
+        vec2 cell = floor(uv);
+        vec2 f = fract(uv) - vec2(rand(cell), rand(cell + 3.3));
+        float leaf = smoothstep(0.12, 0.08, length(f * vec2(1.0, 2.2))) * step(0.6, rand(cell + 8.0));
+        vec3 lc = mix(vec3(0.9, 0.45, 0.1), vec3(0.85, 0.2, 0.1), rand(cell + 1.0));
+        c = mix(c, lc, leaf * 0.9);
+    } else if (uEffect == 13) {
+        // салют: вспышки искр
+        float burst = floor(uTime * 0.7);
+        vec2 ctr = vec2(0.2 + 0.6 * rand(vec2(burst, 1.0)), 0.55 + 0.3 * rand(vec2(burst, 2.0)));
+        float age = fract(uTime * 0.7);
+        vec2 q = (vPos - ctr) * vec2(uAspect, 1.0);
+        float ang = atan(q.y, q.x);
+        float ray = pow(abs(sin(ang * 12.0)), 30.0);
+        float ring = smoothstep(0.03, 0.0, abs(length(q) - age * 0.35));
+        vec3 col = hue(rand(vec2(burst, 3.0)));
+        c += col * ring * (0.4 + ray) * (1.0 - age) * 1.4;
+    } else if (uEffect == 14) {
+        // огонь снизу кадра
+        float y = 1.0 - vPos.y;
+        float n = rand(vec2(floor(vPos.x * 40.0), floor(uTime * 12.0)));
+        float flame = smoothstep(0.35 + n * 0.12, 0.0, y) * (0.6 + 0.4 * sin(uTime * 8.0 + vPos.x * 20.0));
+        c = c + vec3(1.0, 0.45, 0.05) * flame * 0.8 + vec3(1.0, 0.85, 0.3) * flame * flame * 0.4;
+    } else if (uEffect == 15) {
+        // дым/туман
+        float s1 = sin(vPos.x * 6.0 + uTime * 0.4) * sin(vPos.y * 5.0 - uTime * 0.3);
+        float s2 = sin(vPos.x * 11.0 - uTime * 0.6) * sin(vPos.y * 9.0 + uTime * 0.5);
+        float fog = clamp(0.35 + 0.25 * s1 + 0.15 * s2, 0.0, 1.0) * smoothstep(0.0, 0.7, 1.0 - vPos.y);
+        c = mix(c, vec3(0.85), fog * 0.45);
     }
 
     gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);

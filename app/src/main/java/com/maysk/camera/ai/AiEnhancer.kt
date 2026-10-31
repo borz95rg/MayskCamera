@@ -144,6 +144,8 @@ data class PhotoSpec(
     val detail: Float = 0.35f,
     /** Рамка для фото. */
     val frame: com.maysk.camera.camera.FrameSpec? = null,
+    /** AR-маска, которая дорисовывается на лица. */
+    val arMask: com.maysk.camera.camera.ArMask = com.maysk.camera.camera.ArMask.NONE,
 )
 
 object PhotoPipeline {
@@ -188,6 +190,14 @@ object PhotoPipeline {
             Vision.personMask(ImageOps.limitSize(out, 512))?.let { (m, w, h) -> out = ImageOps.blurBackground(out, m, w, h, 0.55f) }
         }
         out = ImageOps.applyEffect(out, spec.effect)
+        if (spec.arMask != com.maysk.camera.camera.ArMask.NONE) {
+            val maskFaces = Vision.faces(ImageOps.limitSize(out, 1600))
+            if (maskFaces.isNotEmpty()) {
+                out = ImageOps.ensureMutable(out)
+                val canvas = android.graphics.Canvas(out)
+                maskFaces.forEach { f -> com.maysk.camera.camera.ArMasks.draw(canvas, spec.arMask, f, out.width.toFloat(), out.height.toFloat(), time = 0.5f) }
+            }
+        }
         spec.frame?.let { out = com.maysk.camera.camera.Frames.apply(out, it) }
         return out
     }

@@ -30,6 +30,8 @@ data class LiveScene(
 class LiveAnalyzer(
     private val enabled: () -> Boolean,
     private val onResult: (LiveScene) -> Unit,
+    /** Для AR-масок лица ищутся на каждом кадре — маска «прилипает» к лицу. */
+    private val realtimeFaces: () -> Boolean = { false },
 ) : ImageAnalysis.Analyzer {
 
     private var lastFaces = 0L
@@ -50,7 +52,7 @@ class LiveAnalyzer(
             shake = shake * 0.8f + diff * 20f * 0.2f
 
             if (enabled()) {
-                if (now - lastFaces > 330) {
+                if (now - lastFaces > (if (realtimeFaces()) 0 else 330)) {
                     lastFaces = now
                     faces = runBlocking { Vision.faces(bmp, rotation, accurate = false) }
                 }

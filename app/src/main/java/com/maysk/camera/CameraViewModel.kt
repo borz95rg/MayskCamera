@@ -89,7 +89,14 @@ data class CameraUi(
     val updateProgress: Float? = null,
     /** Рамка, которая добавляется к фото. */
     val frame: com.maysk.camera.camera.FrameSpec? = null,
+    /** AR-маска на лице. */
+    val arMask: com.maysk.camera.camera.ArMask = com.maysk.camera.camera.ArMask.NONE,
+    /** Раскладка двойной камеры. */
+    val dualLayout: DualLayout = DualLayout.PIP,
 )
+
+/** Раскладки двойной камеры. */
+enum class DualLayout(val title: String) { PIP("Картинка в картинке"), SPLIT_V("50/50 вертикально"), SPLIT_H("50/50 рядом"), ROUND("Круглая мини-камера") }
 
 class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private val ctx: Application get() = getApplication()
@@ -142,11 +149,12 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         }
         controller.analyzer = LiveAnalyzer(
             enabled = { settings.value.smartAi || _ui.value.aiPro || needsFaces() },
-            onResult = { scene -> live.value = scene; viewModelScope.launch { onLiveScene(scene) } }
+            onResult = { scene -> live.value = scene; viewModelScope.launch { onLiveScene(scene) } },
+            realtimeFaces = { _ui.value.arMask != com.maysk.camera.camera.ArMask.NONE }
         )
     }
 
-    private fun needsFaces() = _ui.value.mode in setOf(CameraMode.PORTRAIT, CameraMode.INTERVIEW, CameraMode.CINEMATIC, CameraMode.VLOG, CameraMode.AI_AUTO)
+    private fun needsFaces() = _ui.value.arMask != com.maysk.camera.camera.ArMask.NONE || _ui.value.mode in setOf(CameraMode.PORTRAIT, CameraMode.INTERVIEW, CameraMode.CINEMATIC, CameraMode.VLOG, CameraMode.AI_AUTO)
 
     // region привязка камеры
     fun attach(owner: LifecycleOwner, pv: PreviewView) {
@@ -218,7 +226,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 flashMode = u.flash.captureMode,
                 liveEffects = true,
                 useExtension = u.mode != CameraMode.PRO,
-                lowResCapture = u.mode == CameraMode.PANORAMA || u.mode == CameraMode.TIMELAPSE,
+                lowResCapture = u.mode == CameraMode.PANORAMA || u.mode == CameraMode.TIMELAPSE || u.mode == CameraMode.BOOMERANG,
                 extensionOverride = hdrExt,
             )
         )
@@ -270,6 +278,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setFilter(id: String) { _ui.update { it.copy(filterId = id) }; updateEffect() }
     fun setFilterIntensity(v: Float) { _ui.update { it.copy(filterIntensity = v) }; updateEffect() }
     fun setFrame(f: com.maysk.camera.camera.FrameSpec?) = _ui.update { it.copy(frame = f) }
+    fun setArMask(m: com.maysk.camera.camera.ArMask) = _ui.update { it.copy(arMask = m) }
+    fun setDualLayout(l: DualLayout) = _ui.update { it.copy(dualLayout = l) }
     fun setEffect(e: Effect) { _ui.update { it.copy(effect = e) }; updateEffect() }
     fun setTimelapseInterval(v: Float) = _ui.update { it.copy(timelapseInterval = v) }
     fun consumeMessage() = _ui.update { it.copy(message = null) }
@@ -437,6 +447,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             u.mode == CameraMode.TIMELAPSE -> if (u.timelapseActive) stopTimelapse() else startTimelapse()
             u.mode == CameraMode.PANORAMA -> if (u.panoramaActive) stopPanorama() else startPanorama()
             u.mode.recordsVideo -> if (cam.value.recording) stopRecording() else startRecording()
+            u.mode == CameraMode.DUAL -> captureJob = viewModelScope.launch { takeDual() }
+            u.mode == CameraMode.BOOMERANG -> captureJob = viewModelScope.launch { takeBoomerang() }
             else -> {
                 captureJob = viewModelScope.launch {
                     if (u.timer > 0) {
@@ -544,12 +556,73 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     else -> 0.38f
                 },
                 frame = u.frame,
+                arMask = u.arMask,
             )
             val out = withContext(Dispatchers.Default) { PhotoPipeline.process(raw, spec) }
             val uri = MediaStoreRepo.saveJpeg(ctx, out, quality, location)
             _ui.update { it.copy(busy = null, progress = null, lastUri = uri ?: it.lastUri, lastIsVideo = false, message = if (uri != null) null else "Не удалось сохранить") }
         } catch (t: Throwable) {
             _ui.update { it.copy(busy = null, progress = null, message = "Ошибка съёмки: ${t.message ?: t.javaClass.simpleName}") }
+        }
+    }
+
+    /** Двойное фото: основная + фронтальная камера, склейка по выбранной раскладке. */
+    private suspend fun takeDual() {
+        val s = settings.value
+        val startFront = _ui.value.front
+        try {
+            _ui.update { it.copy(busy = "Снимок 1 из 2…") }
+            playShutter()
+            val first = controller.captureBitmap(s.mirrorFront)
+            _ui.update { it.copy(busy = "Переключаю камеру…", front = !startFront, ultraWide = false) }
+            rebind()
+            delay(900)   // даём камере навести фокус и экспозицию
+            _ui.update { it.copy(busy = "Снимок 2 из 2…") }
+            playShutter()
+            val second = controller.captureBitmap(s.mirrorFront)
+            _ui.update { it.copy(front = startFront, busy = "Склейка…") }
+            rebind()
+            val main = if (startFront) second else first
+            val selfie = if (startFront) first else second
+            val out = withContext(Dispatchers.Default) {
+                val m = PhotoPipeline.process(ImageOps.limitSize(main, 4000), PhotoSpec(filterId = _ui.value.filterId, filterIntensity = _ui.value.filterIntensity))
+                val sf = PhotoPipeline.process(ImageOps.limitSize(selfie, 2000), PhotoSpec(beautySkin = if (_ui.value.beautyOn) s.beautySkin else 0.2f, detail = 0.2f))
+                com.maysk.camera.camera.Dual.compose(m, sf, _ui.value.dualLayout)
+            }
+            val uri = MediaStoreRepo.saveJpeg(ctx, out, if (s.photoQualityHigh) 95 else 88, name = MediaStoreRepo.newName("DUAL"))
+            _ui.update { it.copy(busy = null, lastUri = uri ?: it.lastUri, lastIsVideo = false) }
+        } catch (t: Throwable) {
+            _ui.update { it.copy(busy = null, front = startFront, message = "Двойной снимок не удался: ${t.message}") }
+            rebind()
+        }
+    }
+
+    /** Бумеранг: 10 быстрых кадров → видео вперёд-назад, повторённое 3 раза. */
+    private suspend fun takeBoomerang() {
+        val s = settings.value
+        val frames = mutableListOf<Bitmap>()
+        try {
+            playShutter()
+            for (i in 0 until 10) {
+                _ui.update { it.copy(busy = "Бумеранг ${i + 1}/10", progress = (i + 1) / 10f) }
+                runCatching { controller.captureBitmap(s.mirrorFront) }.getOrNull()?.let { frames += ImageOps.limitSize(it, 1280) }
+            }
+            if (frames.size < 4) { _ui.update { it.copy(busy = null, progress = null, message = "Не удалось снять кадры") }; return }
+            _ui.update { it.copy(busy = "Собираю бумеранг…", progress = null) }
+            val file = java.io.File(ctx.cacheDir, "boomerang.mp4")
+            val ok = withContext(Dispatchers.Default) {
+                val f = Filters.byId(_ui.value.filterId)
+                val processed = frames.map { ImageOps.colorMatrix(it, Filters.blended(f, _ui.value.filterIntensity)) }
+                val seq = processed + processed.reversed().drop(1).dropLast(1)
+                val enc = TimelapseEncoder(file, fps = 15)
+                repeat(3) { seq.forEach { enc.addFrame(it) } }
+                enc.finish()
+            }
+            val uri = if (ok) MediaStoreRepo.saveVideoFile(ctx, file, MediaStoreRepo.newName("BOOMERANG")) else null
+            file.delete()
+            _ui.update { it.copy(busy = null, lastUri = uri ?: it.lastUri, lastIsVideo = uri != null) }
+        } catch (t: Throwable) {
+            _ui.update { it.copy(busy = null, progress = null, message = "Бумеранг не удался: ${t.message}") }
         }
     }
 

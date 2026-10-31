@@ -103,6 +103,16 @@ import androidx.compose.material.icons.filled.LocalFlorist
 import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Portrait
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Mood
+import androidx.compose.material.icons.filled.PictureInPicture
+import androidx.compose.material.icons.filled.AllInclusive
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import com.maysk.camera.ai.SceneType
 import com.maysk.camera.ui.theme.MayskTheme
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -144,7 +154,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.atan2
 
-private enum class Panel { NONE, FILTERS, EFFECTS, BEAUTY, PRO, EV, FRAMES }
+private enum class Panel { NONE, FILTERS, EFFECTS, BEAUTY, PRO, EV, FRAMES, MASKS }
 
 /** Угол поворота иконок при горизонтальном положении телефона. */
 private val LocalIconRotation = androidx.compose.runtime.compositionLocalOf { 0f }
@@ -313,7 +323,8 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
             )
             if (settings.grid) GridOverlay()
             if (settings.horizon && !recordingNow) HorizonOverlay()
-            FaceOverlay(live.faces.map { it.box }, cam.front)
+            if (ui.arMask != com.maysk.camera.camera.ArMask.NONE) ArMaskOverlay(live.faces, ui.arMask, cam.front)
+            else FaceOverlay(live.faces.map { it.box }, cam.front)
             focusPoint?.let { p ->
                 Box(
                     Modifier
@@ -432,6 +443,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                             cam.evMin.toFloat()..maxOf(cam.evMax.toFloat(), cam.evMin + 1f)
                         ) { vm.controller.setExposureIndex(it.toInt()) }
                         Panel.FRAMES -> MayskTheme(com.maysk.camera.ui.theme.AppTheme.DARK) { FramePicker(ui.frame) { vm.setFrame(it) } }
+                        Panel.MASKS -> MasksPanel(ui.arMask) { vm.setArMask(it) }
                         Panel.NONE -> Unit
                     }
                 }
@@ -447,6 +459,11 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                 )
             }
 
+            if (ui.mode == CameraMode.DUAL && !recordingNow) {
+                LazyRow(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
+                    items(com.maysk.camera.DualLayout.entries) { l -> Pill(l.title, ui.dualLayout == l) { vm.setDualLayout(l) } }
+                }
+            }
             ZoomBar(cam.zoom, cam.minZoom, cam.maxZoom, cam.hasUltraWide, ui.ultraWide, Modifier.align(Alignment.CenterHorizontally).padding(vertical = 6.dp)) { vm.selectZoom(it) }
 
             if (!recordingNow) {
@@ -548,6 +565,7 @@ private fun ToolsDrawer(
         add(Tile(Icons.Filled.PhotoFilter, "Фильтры", panel == Panel.FILTERS || ui.filterId != "original") { onPanel(Panel.FILTERS) })
         add(Tile(Icons.Filled.Face, "Красота", ui.beautyOn) { onPanel(Panel.BEAUTY) })
         add(Tile(Icons.Filled.AutoFixHigh, "Эффекты", ui.effect != Effect.NONE) { onPanel(Panel.EFFECTS) })
+        add(Tile(Icons.Filled.Mood, "AR маски", ui.arMask != com.maysk.camera.camera.ArMask.NONE) { onPanel(Panel.MASKS) })
         add(Tile(Icons.Filled.Exposure, "EV", panel == Panel.EV) { onPanel(Panel.EV) })
         if (!isVideo) add(Tile(Icons.Filled.CropFree, "Рамки", ui.frame != null) { onPanel(Panel.FRAMES) })
         if (!isVideo) add(Tile(Icons.Filled.HdrOn, "HDR", ui.hdr) { vm.toggleHdr() })
@@ -564,6 +582,8 @@ private fun ToolsDrawer(
         add(Tile(Icons.Filled.NightsStay, "Ночь", ui.mode == CameraMode.NIGHT) { vm.setMode(CameraMode.NIGHT) })
         add(Tile(Icons.Filled.Portrait, "Портрет", ui.mode == CameraMode.PORTRAIT) { vm.setMode(CameraMode.PORTRAIT) })
         add(Tile(Icons.Filled.Mic, "Голос", settings.voiceControl) { vm.updateSettings({ it.copy(voiceControl = !it.voiceControl) }) })
+        add(Tile(Icons.Filled.PictureInPicture, "Двойная", ui.mode == CameraMode.DUAL) { vm.setMode(CameraMode.DUAL) })
+        add(Tile(Icons.Filled.AllInclusive, "Бумеранг", ui.mode == CameraMode.BOOMERANG) { vm.setMode(CameraMode.BOOMERANG) })
         add(Tile(Icons.Filled.Apps, "Все режимы", false) { onModes() })
     }
     androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
@@ -574,7 +594,7 @@ private fun ToolsDrawer(
             .clip(RoundedCornerShape(18.dp))
             .background(Color(0xD90E0B10))
             .padding(8.dp)
-            .height(if (tiles.size > 15) 250.dp else 190.dp),
+            .height(if (tiles.size > 20) 300.dp else if (tiles.size > 15) 250.dp else 190.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items(tiles.size) { i ->
@@ -843,6 +863,49 @@ private fun FaceOverlay(faces: List<android.graphics.RectF>, mirror: Boolean) {
     }
 }
 
+/** AR-маска поверх живого кадра (с учётом обрезки полноэкранного превью). */
+@Composable
+private fun ArMaskOverlay(faces: List<com.maysk.camera.ai.FaceInfo>, mask: com.maysk.camera.camera.ArMask, mirror: Boolean) {
+    val t by rememberInfiniteTransition(label = "ar").animateFloat(
+        initialValue = 0f, targetValue = 1000f,
+        animationSpec = infiniteRepeatable(tween(1_000_000, easing = LinearEasing)), label = "arTime"
+    )
+    if (faces.isEmpty()) return
+    Canvas(Modifier.fillMaxSize()) {
+        val frameAspect = 0.75f
+        val va = size.width / size.height
+        val fx = if (va < frameAspect) va / frameAspect else 1f
+        val fy = if (va > frameAspect) frameAspect / va else 1f
+        val w = size.width / fx
+        val h = size.height / fy
+        val offX = -(1 - fx) / 2 * w
+        val offY = -(1 - fy) / 2 * h
+        drawIntoCanvas { c -> faces.forEach { f -> com.maysk.camera.camera.ArMasks.draw(c.nativeCanvas, mask, f, w, h, offX, offY, mirror, t) } }
+    }
+}
+
+/** Выбор AR-маски. */
+@Composable
+private fun MasksPanel(current: com.maysk.camera.camera.ArMask, onSelect: (com.maysk.camera.camera.ArMask) -> Unit) {
+    Column {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(com.maysk.camera.camera.ArMask.entries) { m ->
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(62.dp).clickable { onSelect(m) }) {
+                    Box(
+                        Modifier
+                            .size(50.dp)
+                            .clip(CircleShape)
+                            .background(if (m == current) Accent else Color.White.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) { Text(m.emoji, fontSize = 22.sp) }
+                    Text(m.title, color = if (m == current) Accent else Color.White, fontSize = 10.sp, maxLines = 1, modifier = Modifier.padding(top = 3.dp))
+                }
+            }
+        }
+        Text("Маска сохраняется на фото. В записи видео — в следующем обновлении", color = Color.White.copy(alpha = 0.55f), fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
 @Composable
 private fun StatusPill(text: String, modifier: Modifier) {
     Box(
@@ -925,11 +988,17 @@ fun Histogram(hist: FloatArray, modifier: Modifier = Modifier) {
 
 @Composable
 private fun FiltersPanel(selected: String, intensity: Float, thumb: Uri?, onSelect: (String) -> Unit, onIntensity: (Float) -> Unit) {
+    var cat by remember { mutableStateOf<com.maysk.camera.camera.FilterCategory?>(Filters.byId(selected).category) }
+    val list = remember(cat) { Filters.search("", cat) }
     Column {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+            item { Pill("Все ${Filters.all.size}", cat == null) { cat = null } }
+            items(com.maysk.camera.camera.FilterCategory.entries) { c -> Pill(c.title, cat == c) { cat = c } }
+        }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(Filters.all) { f ->
+            items(list, key = { it.id }) { f ->
                 val sel = f.id == selected
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onSelect(f.id) }) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(64.dp).clickable { onSelect(f.id) }) {
                     Box(
                         Modifier
                             .size(58.dp)
@@ -942,7 +1011,7 @@ private fun FiltersPanel(selected: String, intensity: Float, thumb: Uri?, onSele
                             colorFilter = ColorFilter.colorMatrix(ColorMatrix(f.matrix)), modifier = Modifier.fillMaxSize()
                         )
                     }
-                    Text(f.name, color = if (sel) Accent else Color.White, fontSize = 11.sp, modifier = Modifier.padding(top = 3.dp))
+                    Text(f.name, color = if (sel) Accent else Color.White, fontSize = 10.sp, maxLines = 1, modifier = Modifier.padding(top = 3.dp))
                 }
             }
         }

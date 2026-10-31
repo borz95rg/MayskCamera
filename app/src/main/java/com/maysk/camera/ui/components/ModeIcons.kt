@@ -2,11 +2,18 @@ package com.maysk.camera.ui.components
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AcUnit
+import androidx.compose.material.icons.filled.Cake
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Eco
+import androidx.compose.material.icons.filled.Whatshot
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BlurCircular
 import androidx.compose.material.icons.filled.BlurOn
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.PictureInPicture
+import androidx.compose.material.icons.filled.AllInclusive
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Flare
 import androidx.compose.material.icons.filled.Gradient
@@ -50,6 +57,8 @@ fun CameraMode.icon(): ImageVector = when (this) {
     CameraMode.PET -> Icons.Filled.Pets
     CameraMode.BABY -> Icons.Filled.ChildCare
     CameraMode.CAR -> Icons.Filled.DirectionsCar
+    CameraMode.DUAL -> Icons.Filled.PictureInPicture
+    CameraMode.BOOMERANG -> Icons.Filled.AllInclusive
     CameraMode.VIDEO -> Icons.Filled.Videocam
     CameraMode.VIDEO_4K -> Icons.Filled.Hd
     CameraMode.VIDEO_8K -> Icons.Filled.HighQuality
@@ -72,4 +81,10 @@ fun Effect.icon(): ImageVector = when (this) {
     Effect.RAINBOW -> Icons.Filled.Gradient
     Effect.RAIN -> Icons.Filled.Opacity
     Effect.SNOW -> Icons.Filled.AcUnit
+    Effect.CONFETTI -> Icons.Filled.Cake
+    Effect.STARS -> Icons.Filled.Star
+    Effect.LEAVES -> Icons.Filled.Eco
+    Effect.FIREWORKS -> Icons.Filled.AutoAwesome
+    Effect.FIRE -> Icons.Filled.Whatshot
+    Effect.SMOKE -> Icons.Filled.Cloud
 }

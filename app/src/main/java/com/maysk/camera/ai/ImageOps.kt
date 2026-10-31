@@ -744,6 +744,170 @@ object ImageOps {
         return fromPixels(px, w, h)
     }
 
+    /** Варианты нового фона. */
+    enum class Backdrop(val title: String, val colors: IntArray) {
+        BLUR("Размытие", intArrayOf()),
+        WHITE("Белый", intArrayOf(Color.WHITE, Color.WHITE)),
+        BLACK("Чёрный", intArrayOf(Color.BLACK, Color.BLACK)),
+        STUDIO("Студия", intArrayOf(Color.parseColor("#9E9E9E"), Color.parseColor("#424242"))),
+        SUNSET("Закат", intArrayOf(Color.parseColor("#FF7E5F"), Color.parseColor("#FEB47B"))),
+        OCEAN("Океан", intArrayOf(Color.parseColor("#2193B0"), Color.parseColor("#6DD5ED"))),
+        NEON("Неон", intArrayOf(Color.parseColor("#FF2E63"), Color.parseColor("#7C4DFF"))),
+        MINT("Мята", intArrayOf(Color.parseColor("#B2F5EA"), Color.parseColor("#E6FFFA"))),
+    }
+
+    /** Замена фона за человеком (маска ML Kit) на размытие, цвет или градиент. */
+    fun replaceBackground(src: Bitmap, mask: FloatArray, mw: Int, mh: Int, backdrop: Backdrop): Bitmap {
+        if (!personMaskUsable(mask)) return src
+        if (backdrop == Backdrop.BLUR) return blurBackground(src, mask, mw, mh, 0.9f)
+        val w = src.width; val h = src.height
+        val bg = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        Canvas(bg).drawRect(0f, 0f, w.toFloat(), h.toFloat(), Paint().apply {
+            shader = android.graphics.LinearGradient(0f, 0f, 0f, h.toFloat(), backdrop.colors, null, Shader.TileMode.CLAMP)
+        })
+        val maskBmp = Bitmap.createBitmap(mw, mh, Bitmap.Config.ARGB_8888)
+        maskBmp.setPixels(IntArray(mw * mh) { i ->
+            val a = (((mask[i] - 0.3f) / 0.45f).coerceIn(0f, 1f) * 255).toInt()
+            (0xFF shl 24) or (a shl 16) or (a shl 8) or a
+        }, 0, mw, 0, 0, mw, mh)
+        val soft = pixels(Bitmap.createScaledBitmap(fastBlur(maskBmp, 2), w, h, true))
+        val px = pixels(src); val bp = pixels(bg)
+        for (i in px.indices) {
+            val fg = ((soft[i] shr 8) and 255) / 255f
+            val c = px[i]; val b = bp[i]
+            px[i] = (0xFF shl 24) or
+                (clamp255(((c shr 16) and 255) * fg + ((b shr 16) and 255) * (1 - fg)) shl 16) or
+                (clamp255(((c shr 8) and 255) * fg + ((b shr 8) and 255) * (1 - fg)) shl 8) or
+                clamp255((c and 255) * fg + (b and 255) * (1 - fg))
+        }
+        return fromPixels(px, w, h)
+    }
+
+    /** Пресеты неба. */
+    enum class Sky(val title: String, val top: Int, val bottom: Int, val stars: Boolean = false, val clouds: Boolean = false) {
+        BLUE("Голубое", Color.parseColor("#1E6FD9"), Color.parseColor("#9FD3FF"), clouds = true),
+        SUNSET("Закат", Color.parseColor("#3B2C6E"), Color.parseColor("#FF8A50")),
+        GOLDEN("Золотой час", Color.parseColor("#F6A04D"), Color.parseColor("#FFE3A3")),
+        PINK("Розовое", Color.parseColor("#B06AB3"), Color.parseColor("#FFC3D8")),
+        NIGHT("Звёздное", Color.parseColor("#05081C"), Color.parseColor("#1B2A5C"), stars = true),
+        DRAMA("Драма", Color.parseColor("#2C3E50"), Color.parseColor("#8E9EAB"), clouds = true),
+    }
+
+    /**
+     * Замена неба: находим небо (светлые/голубые однородные области, связанные с верхним краем кадра),
+     * плавно заменяем на выбранное и слегка подкрашиваем остальное в тон нового неба.
+     * Возвращает null, если неба в кадре нет.
+     */
+    fun replaceSky(src: Bitmap, sky: Sky): Bitmap? {
+        val sw = 256
+        val sh = max(16, (src.height * sw.toFloat() / src.width).roundToInt())
+        val small = Bitmap.createScaledBitmap(src, sw, sh, true)
+        val sp = pixels(small)
+        val blur = boxBlur(sp, sw, sh, 2)
+        val cand = BooleanArray(sw * sh)
+        for (i in sp.indices) {
+            val c = sp[i]
+            val r = (c shr 16) and 255; val g = (c shr 8) and 255; val b = c and 255
+            val l = (r * 0.299f + g * 0.587f + b * 0.114f) / 255f
+            val mx = max(r, max(g, b)); val mn = min(r, min(g, b))
+            val sat = if (mx == 0) 0f else (mx - mn) / mx.toFloat()
+            val bl = blur[i]
+            val texture = (abs(r - ((bl shr 16) and 255)) + abs(g - ((bl shr 8) and 255)) + abs(b - (bl and 255))) / 3f
+            val blueSky = b > r + 8 && b >= g - 5 && l > 0.35f
+            val whiteSky = l > 0.72f && sat < 0.22f
+            val sunsetSky = r > 150 && l > 0.45f && sat > 0.25f && i / sw < sh / 2
+            cand[i] = (blueSky || whiteSky || sunsetSky) && texture < 9f
+        }
+        // заливка от верхнего края: небо должно касаться верха кадра
+        val sky01 = BooleanArray(sw * sh)
+        val stack = ArrayDeque<Int>()
+        for (x in 0 until sw) if (cand[x]) { sky01[x] = true; stack.add(x) }
+        while (stack.isNotEmpty()) {
+            val i = stack.removeLast()
+            val x = i % sw; val y = i / sw
+            val nb = intArrayOf(if (x > 0) i - 1 else -1, if (x < sw - 1) i + 1 else -1, if (y > 0) i - sw else -1, if (y < sh - 1) i + sw else -1)
+            for (j in nb) if (j >= 0 && !sky01[j] && cand[j]) { sky01[j] = true; stack.add(j) }
+        }
+        val count = sky01.count { it }
+        if (count < sw * sh / 25) return null
+        val maskSmall = Bitmap.createBitmap(sw, sh, Bitmap.Config.ARGB_8888)
+        maskSmall.setPixels(IntArray(sw * sh) { if (sky01[it]) -1 else (0xFF shl 24) }, 0, sw, 0, 0, sw, sh)
+        val w = src.width; val h = src.height
+        val soft = pixels(Bitmap.createScaledBitmap(fastBlur(maskSmall, 2), w, h, true))
+        // нижняя граница неба — чтобы градиент растянуть по высоте неба
+        var horizon = 0
+        for (y in 0 until sh) { var any = false; for (x in 0 until sw) if (sky01[y * sw + x]) { any = true; break }; if (any) horizon = y }
+        val horizonPx = ((horizon + 1) * h / sh).coerceAtLeast(h / 4)
+        val newSky = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val sc = Canvas(newSky)
+        sc.drawRect(0f, 0f, w.toFloat(), h.toFloat(), Paint().apply {
+            shader = android.graphics.LinearGradient(0f, 0f, 0f, horizonPx.toFloat(), sky.top, sky.bottom, Shader.TileMode.CLAMP)
+        })
+        val rnd = Random(7)
+        if (sky.stars) {
+            val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+            repeat(260) { p.alpha = 120 + rnd.nextInt(135); sc.drawCircle(rnd.nextFloat() * w, rnd.nextFloat() * horizonPx, w * (0.0008f + rnd.nextFloat() * 0.0018f), p) }
+        }
+        if (sky.clouds) {
+            val p = Paint(Paint.ANTI_ALIAS_FLAG)
+            repeat(14) {
+                val cx = rnd.nextFloat() * w; val cy = rnd.nextFloat() * horizonPx * 0.8f; val r = w * (0.08f + rnd.nextFloat() * 0.12f)
+                p.shader = RadialGradient(cx, cy, r, intArrayOf(Color.argb(170, 255, 255, 255), Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
+                sc.drawOval(RectF(cx - r * 1.6f, cy - r * 0.6f, cx + r * 1.6f, cy + r * 0.6f), p)
+            }
+        }
+        val px = pixels(src); val np = pixels(newSky)
+        val tr = Color.red(sky.bottom); val tg = Color.green(sky.bottom); val tb = Color.blue(sky.bottom)
+        for (i in px.indices) {
+            val a = ((soft[i] shr 8) and 255) / 255f
+            val c = px[i]; val n = np[i]
+            var r = ((c shr 16) and 255).toFloat(); var g = ((c shr 8) and 255).toFloat(); var b = (c and 255).toFloat()
+            // лёгкая подкраска земли в тон неба (8%)
+            r += (tr - r) * 0.08f * (1 - a); g += (tg - g) * 0.08f * (1 - a); b += (tb - b) * 0.08f * (1 - a)
+            if (sky == Sky.NIGHT) { val k = 1f - 0.45f * (1 - a); r *= k; g *= k; b *= k }
+            px[i] = (0xFF shl 24) or
+                (clamp255(r * (1 - a) + ((n shr 16) and 255) * a) shl 16) or
+                (clamp255(g * (1 - a) + ((n shr 8) and 255) * a) shl 8) or
+                clamp255(b * (1 - a) + (n and 255) * a)
+        }
+        return fromPixels(px, w, h)
+    }
+
+    /** Надписи и стикеры (эмодзи) поверх фото. Координаты нормализованы. */
+    data class TextOverlay(
+        val id: Long, val text: String, val x: Float, val y: Float, val size: Float,
+        val color: Int = Color.WHITE, val emoji: Boolean = false, val style: Int = 0,
+    )
+
+    fun drawOverlays(src: Bitmap, items: List<TextOverlay>): Bitmap {
+        if (items.isEmpty()) return src
+        val out = ensureMutable(src.copy(Bitmap.Config.ARGB_8888, true))
+        val c = Canvas(out)
+        for (it in items) {
+            val ts = it.size * out.width
+            val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                textSize = ts; textAlign = Paint.Align.CENTER; color = it.color
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+            }
+            val x = it.x * out.width
+            val y = it.y * out.height - (p.descent() + p.ascent()) / 2
+            if (!it.emoji) when (it.style) {
+                1 -> { // плашка
+                    val tw = p.measureText(it.text)
+                    val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(170, 0, 0, 0) }
+                    c.drawRoundRect(RectF(x - tw / 2 - ts * 0.35f, it.y * out.height - ts * 0.75f, x + tw / 2 + ts * 0.35f, it.y * out.height + ts * 0.75f), ts * 0.3f, ts * 0.3f, bg)
+                }
+                2 -> { // обводка
+                    val st = Paint(p).apply { style = Paint.Style.STROKE; strokeWidth = ts * 0.12f; color = Color.BLACK }
+                    c.drawText(it.text, x, y, st)
+                }
+                else -> p.setShadowLayer(ts * 0.12f, 0f, ts * 0.05f, Color.argb(160, 0, 0, 0))
+            }
+            c.drawText(it.text, x, y, p)
+        }
+        return out
+    }
+
     /** Эффекты на фото (аналог шейдера). */
     fun applyEffect(src: Bitmap, effect: Effect, seed: Long = System.currentTimeMillis()): Bitmap {
         if (effect == Effect.NONE || effect == Effect.BG_BLUR) return src
@@ -826,6 +990,51 @@ object ImageOps {
                     p.shader = RadialGradient(ox, oy, len, intArrayOf(0x66FFE0A8, 0x00FFE0A8), null, Shader.TileMode.CLAMP)
                     c.drawPath(path, p)
                 }
+            }
+            Effect.CONFETTI -> repeat(160) {
+                p.color = android.graphics.Color.HSVToColor(floatArrayOf(rnd.nextFloat() * 360f, 0.8f, 1f))
+                val cx = rnd.nextFloat() * w; val cy = rnd.nextFloat() * h; val s = w * 0.008f
+                c.save(); c.rotate(rnd.nextFloat() * 360f, cx, cy)
+                c.drawRect(cx - s, cy - s * 0.5f, cx + s, cy + s * 0.5f, p)
+                c.restore()
+            }
+            Effect.STARS -> {
+                p.color = Color.argb(230, 255, 245, 210)
+                repeat(70) {
+                    val x = rnd.nextFloat() * w; val y = rnd.nextFloat() * h; val s = w * (0.004f + rnd.nextFloat() * 0.01f)
+                    p.strokeWidth = s * 0.25f
+                    c.drawLine(x - s, y, x + s, y, p); c.drawLine(x, y - s, x, y + s, p)
+                    c.drawCircle(x, y, s * 0.25f, p)
+                }
+            }
+            Effect.LEAVES -> repeat(45) {
+                p.color = if (rnd.nextBoolean()) Color.argb(230, 230, 115, 25) else Color.argb(230, 200, 50, 25)
+                val x = rnd.nextFloat() * w; val y = rnd.nextFloat() * h; val s = w * 0.015f
+                c.save(); c.rotate(rnd.nextFloat() * 360f, x, y)
+                c.drawOval(RectF(x - s, y - s * 0.45f, x + s, y + s * 0.45f), p)
+                c.restore()
+            }
+            Effect.FIREWORKS -> repeat(3) {
+                val cx = w * (0.2f + rnd.nextFloat() * 0.6f); val cy = h * (0.1f + rnd.nextFloat() * 0.3f)
+                val r = w * (0.12f + rnd.nextFloat() * 0.1f)
+                p.color = android.graphics.Color.HSVToColor(floatArrayOf(rnd.nextFloat() * 360f, 0.7f, 1f))
+                p.strokeWidth = w * 0.003f
+                for (k in 0 until 36) {
+                    val a = Math.toRadians(k * 10.0)
+                    c.drawLine(cx + (kotlin.math.cos(a) * r * 0.3).toFloat(), cy + (kotlin.math.sin(a) * r * 0.3).toFloat(),
+                        cx + (kotlin.math.cos(a) * r).toFloat(), cy + (kotlin.math.sin(a) * r).toFloat(), p)
+                }
+            }
+            Effect.FIRE -> {
+                p.shader = android.graphics.LinearGradient(0f, h.toFloat(), 0f, h * 0.6f,
+                    intArrayOf(Color.argb(200, 255, 120, 10), Color.argb(90, 255, 200, 60), Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
+                p.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SCREEN)
+                c.drawRect(0f, h * 0.6f, w.toFloat(), h.toFloat(), p)
+            }
+            Effect.SMOKE -> {
+                p.shader = android.graphics.LinearGradient(0f, h.toFloat(), 0f, h * 0.3f,
+                    intArrayOf(Color.argb(150, 220, 220, 220), Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
+                c.drawRect(0f, h * 0.3f, w.toFloat(), h.toFloat(), p)
             }
             else -> Unit
         }

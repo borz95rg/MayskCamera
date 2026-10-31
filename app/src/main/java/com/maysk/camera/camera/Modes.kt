@@ -33,6 +33,8 @@ enum class CameraMode(
     PET("Питомцы", "Быстрый затвор", ModeGroup.SPECIAL, filterId = "vivid"),
     BABY("Дети", "Мягкие тона", ModeGroup.SPECIAL, filterId = "soft_portrait"),
     CAR("Авто", "Блеск и контраст", ModeGroup.SPECIAL, filterId = "hollywood"),
+    DUAL("Двойная", "Основная + фронтальная", ModeGroup.SPECIAL, tip = "Снимок с обеих камер: сначала основная, затем селфи"),
+    BOOMERANG("Бумеранг", "Видео туда-обратно", ModeGroup.SPECIAL, tip = "Держите затвор — 10 кадров превратятся в зацикленное видео"),
     // Видео
     VIDEO("Видео", "Обычное (1080p)", ModeGroup.VIDEO, isVideo = true),
     VIDEO_4K("4K", "4K / 60fps", ModeGroup.VIDEO, isVideo = true),

@@ -46,6 +46,9 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Tonality
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.CropFree
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Details
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.HdrOn
@@ -117,7 +120,8 @@ import kotlinx.coroutines.withContext
 
 enum class EditTool(val title: String) {
     NONE(""), CROP("Обрезка"), BRIGHT("Яркость"), CONTRAST("Контраст"), SAT("Насыщенность"),
-    FILTER("Фильтры"), LIGHT("Свет"), COLOR("Цвет"), DETAIL("Детали"), FRAME("Рамки"), REMOVE("Удалить объект")
+    FILTER("Фильтры"), LIGHT("Свет"), COLOR("Цвет"), DETAIL("Детали"), FRAME("Рамки"), REMOVE("Удалить объект"),
+    TEXT("Текст"), STICKER("Стикеры"), BACKGROUND("Фон"), SKY("Небо")
 }
 
 /** Лёгкая модель параметров редактора. */
@@ -127,6 +131,7 @@ private data class Adjust(
     val filterId: String = "original", val filterIntensity: Float = 1f,
     val crop: Int = 0, val rotation: Int = 0,
     val frame: com.maysk.camera.camera.FrameSpec? = null,
+    val overlays: List<ImageOps.TextOverlay> = emptyList(),
 ) {
     fun matrix(): FloatArray {
         val adj = Filters.adjustments(brightness, contrast, saturation, warmth)
@@ -165,6 +170,8 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
     var brush by remember { mutableFloatStateOf(0.04f) }
     var plan by remember { mutableStateOf<EnhancePlan?>(null) }
     var framed by remember { mutableStateOf<Bitmap?>(null) }
+    var selectedOverlay by remember { mutableStateOf<Long?>(null) }
+    var textDraft by remember { mutableStateOf("") }
 
     fun setBase(b: Bitmap, pushUndo: Boolean = true) {
         base?.let { if (pushUndo) { undo.add(it); if (undo.size > 5) undo.removeAt(0) } }
@@ -187,6 +194,14 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
         val m = Vision.personMask(ImageOps.limitSize(b, 512)) ?: error("нет человека")
         if (!ImageOps.personMaskUsable(m.first)) error("в кадре нет человека")
         ImageOps.blurBackground(b, m.first, m.second, m.third, 0.7f)
+    }
+    fun replaceBg(b: ImageOps.Backdrop) = runAi("Замена фона…") { src ->
+        val m = Vision.personMask(ImageOps.limitSize(src, 512)) ?: error("нет человека")
+        if (!ImageOps.personMaskUsable(m.first)) error("в кадре нет человека")
+        ImageOps.replaceBackground(src, m.first, m.second, m.third, b)
+    }
+    fun replaceSky(sky: ImageOps.Sky) = runAi("Замена неба…") { src ->
+        ImageOps.replaceSky(src, sky) ?: error("небо не найдено")
     }
     fun retouch() = runAi("Ретушь лица…") { b ->
         val faces = Vision.faces(ImageOps.limitSize(b, 1600))
@@ -255,6 +270,7 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
                 r = ImageOps.colorMatrix(r, adj.matrix())
                 val f = Filters.byId(adj.filterId)
                 r = ImageOps.vignetteAndFade(r, f.vignette * adj.filterIntensity, f.fade * adj.filterIntensity)
+                r = ImageOps.drawOverlays(r, adj.overlays)
                 adj.frame?.let { fr -> r = com.maysk.camera.camera.Frames.apply(r, fr) }
                 r
             }
@@ -304,6 +320,36 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
                             drawRect(dim, Offset(0f, 0f), androidx.compose.ui.geometry.Size(r.left * size.width, size.height))
                             drawRect(dim, Offset(r.right * size.width, 0f), androidx.compose.ui.geometry.Size(size.width * (1 - r.right), size.height))
                         })
+                    }
+                    // надписи и стикеры (перетаскиваются пальцем)
+                    if (tool != EditTool.REMOVE && tool != EditTool.CROP) BoxWithConstraints(Modifier.fillMaxSize()) {
+                        val bw = maxWidth; val bh = maxHeight
+                        adj.overlays.forEach { o ->
+                            val density = androidx.compose.ui.platform.LocalDensity.current
+                            val fontPx = o.size * with(density) { bw.toPx() }
+                            Text(
+                                o.text,
+                                color = Color(o.color),
+                                fontSize = with(density) { fontPx.toSp() },
+                                fontWeight = FontWeight.Bold,
+                                style = androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.6f), Offset(0f, 3f), 8f)),
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .offset(x = bw * o.x, y = bh * o.y)
+                                    .offset { androidx.compose.ui.unit.IntOffset(-(fontPx * o.text.length * 0.3f).toInt(), -(fontPx * 0.6f).toInt()) }
+                                    .border(if (selectedOverlay == o.id) 1.dp else 0.dp, if (selectedOverlay == o.id) Accent else Color.Transparent, RoundedCornerShape(4.dp))
+                                    .pointerInput(o.id) {
+                                        detectDragGestures(onDragStart = { selectedOverlay = o.id }) { ch, drag ->
+                                            ch.consume()
+                                            val wPx = bw.toPx(); val hPx = bh.toPx()
+                                            adj = adj.copy(overlays = adj.overlays.map {
+                                                if (it.id == o.id) it.copy(x = (it.x + drag.x / wPx).coerceIn(0f, 1f), y = (it.y + drag.y / hPx).coerceIn(0f, 1f)) else it
+                                            })
+                                        }
+                                    }
+                                    .clickable { selectedOverlay = o.id }
+                            )
+                        }
                     }
                     // кисть удаления
                     if (tool == EditTool.REMOVE) {
@@ -398,6 +444,49 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
                     if (adj.filterId != "original") LabeledSlider("Интенсивность", adj.filterIntensity) { adj = adj.copy(filterIntensity = it) }
                 }
                 EditTool.FRAME -> FramePicker(adj.frame) { adj = adj.copy(frame = it) }
+                EditTool.TEXT -> Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.OutlinedTextField(
+                            value = textDraft, onValueChange = { textDraft = it }, singleLine = true,
+                            placeholder = { Text("Ваш текст") }, modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Box(Modifier.width(110.dp)) {
+                            PrimaryButton("Добавить", enabled = textDraft.isNotBlank()) {
+                                val o = ImageOps.TextOverlay(System.nanoTime(), textDraft.trim(), 0.5f, 0.5f, 0.08f)
+                                adj = adj.copy(overlays = adj.overlays + o); selectedOverlay = o.id; textDraft = ""
+                            }
+                        }
+                    }
+                    OverlayControls(adj.overlays.firstOrNull { it.id == selectedOverlay }, onChange = { n -> adj = adj.copy(overlays = adj.overlays.map { if (it.id == n.id) n else it }) },
+                        onDelete = { id -> adj = adj.copy(overlays = adj.overlays.filter { it.id != id }); selectedOverlay = null })
+                }
+                EditTool.STICKER -> Column {
+                    val stickers = listOf("😍", "🔥", "❤️", "⭐", "😎", "🎉", "👑", "🌸", "🦋", "🌈", "☀️", "🌙", "💎", "🍀", "🎂", "🎈", "💋", "👍", "😂", "🥳", "🐱", "🐶", "✨", "📸")
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(stickers) { e ->
+                            Text(e, fontSize = 30.sp, modifier = Modifier.clickable {
+                                val o = ImageOps.TextOverlay(System.nanoTime(), e, 0.3f + (adj.overlays.size % 5) * 0.1f, 0.4f, 0.16f, emoji = true)
+                                adj = adj.copy(overlays = adj.overlays + o); selectedOverlay = o.id
+                            }.padding(4.dp))
+                        }
+                    }
+                    Text("Перетаскивайте стикер пальцем", color = Maysk.colors.muted, fontSize = 11.sp)
+                    OverlayControls(adj.overlays.firstOrNull { it.id == selectedOverlay }, onChange = { n -> adj = adj.copy(overlays = adj.overlays.map { if (it.id == n.id) n else it }) },
+                        onDelete = { id -> adj = adj.copy(overlays = adj.overlays.filter { it.id != id }); selectedOverlay = null })
+                }
+                EditTool.BACKGROUND -> Column {
+                    Text("AI найдёт человека и заменит фон за ним", color = Maysk.colors.muted, fontSize = 12.sp)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
+                        items(ImageOps.Backdrop.entries) { b -> Pill(b.title, false) { replaceBg(b) } }
+                    }
+                }
+                EditTool.SKY -> Column {
+                    Text("AI найдёт небо и заменит его (лучше всего — на пейзажах)", color = Maysk.colors.muted, fontSize = 12.sp)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
+                        items(ImageOps.Sky.entries) { k -> Pill(k.title, false) { replaceSky(k) } }
+                    }
+                }
                 EditTool.REMOVE -> Column {
                     Text("Закрасьте объект пальцем, затем нажмите «Удалить»", color = Maysk.colors.muted, fontSize = 12.sp)
                     LabeledSlider("Размер кисти", brush, "${(brush * 100).toInt()}", 0.01f..0.12f) { brush = it }
@@ -414,7 +503,8 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
             EditAction(Icons.Filled.AutoFixHigh, "Улучшить", accent = true) { tool = EditTool.NONE; enhance() }
             EditAction(Icons.Filled.Brush, "Удалить объект", tool == EditTool.REMOVE) { tool = if (tool == EditTool.REMOVE) EditTool.NONE else EditTool.REMOVE }
-            EditAction(Icons.Filled.Wallpaper, "Фон") { tool = EditTool.NONE; removeBg() }
+            EditAction(Icons.Filled.Wallpaper, "Фон", tool == EditTool.BACKGROUND) { tool = if (tool == EditTool.BACKGROUND) EditTool.NONE else EditTool.BACKGROUND }
+            EditAction(Icons.Filled.Cloud, "Небо", tool == EditTool.SKY) { tool = if (tool == EditTool.SKY) EditTool.NONE else EditTool.SKY }
             EditAction(Icons.Filled.Face, "Ретушь лица") { tool = EditTool.NONE; retouch() }
             EditAction(Icons.Filled.Restore, "Реставрация") { tool = EditTool.NONE; restore() }
         }
@@ -428,9 +518,35 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
                 EditTool.SAT to Icons.Filled.InvertColors, EditTool.FILTER to Icons.Filled.PhotoFilter, EditTool.LIGHT to Icons.Filled.WbSunny,
                 EditTool.COLOR to Icons.Filled.Thermostat, EditTool.DETAIL to Icons.Filled.Details,
                 EditTool.FRAME to Icons.Filled.CropFree,
+                EditTool.TEXT to Icons.Filled.TextFields,
+                EditTool.STICKER to Icons.Filled.EmojiEmotions,
             )
             items(tools) { (t, ic) -> EditAction(ic, t.title, tool == t) { tool = if (tool == t) EditTool.NONE else t } }
         }
+    }
+}
+
+/** Настройки выбранной надписи/стикера: размер, цвет, стиль, удаление. */
+@Composable
+private fun OverlayControls(o: ImageOps.TextOverlay?, onChange: (ImageOps.TextOverlay) -> Unit, onDelete: (Long) -> Unit) {
+    if (o == null) return
+    Column(Modifier.padding(top = 6.dp)) {
+        LabeledSlider("Размер", o.size, "${(o.size * 100).toInt()}", 0.03f..0.4f) { onChange(o.copy(size = it)) }
+        if (!o.emoji) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(com.maysk.camera.camera.Frames.palette) { col ->
+                    Box(
+                        Modifier.size(26.dp).clip(CircleShape).background(Color(col))
+                            .border(2.dp, if (o.color == col) Accent else Color.Gray.copy(alpha = 0.5f), CircleShape)
+                            .clickable { onChange(o.copy(color = col)) }
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
+                listOf("Тень", "Плашка", "Обводка").forEachIndexed { i, t -> Pill(t, o.style == i) { onChange(o.copy(style = i)) } }
+            }
+        }
+        Text("Удалить", color = Accent, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp).clickable { onDelete(o.id) })
     }
 }
 
@@ -510,7 +626,13 @@ fun FiltersScreen(uri: Uri, onBack: () -> Unit, onSaved: (Uri) -> Unit) {
         LazyRow(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(cats.indices.toList()) { i -> Pill(cats[i]?.title ?: "Все", cat == i) { cat = i } }
         }
-        val list = Filters.all.filter { cats[cat] == null || it.category == cats[cat] || it == Filters.ORIGINAL }
+        var query by remember { mutableStateOf("") }
+        androidx.compose.material3.OutlinedTextField(
+            value = query, onValueChange = { query = it }, singleLine = true,
+            placeholder = { Text("Поиск среди ${Filters.all.size} фильтров") },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
+        )
+        val list = remember(cat, query) { Filters.search(query, cats[cat]) }
         LazyVerticalGrid(GridCells.Fixed(3), Modifier.weight(1f).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(list) { f ->
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { sel = f.id }) {
@@ -623,6 +745,8 @@ fun SceneAnalysisScreen(uri: Uri, onBack: () -> Unit, onSaved: (Uri) -> Unit, on
     var img by remember { mutableStateOf<Bitmap?>(null) }
     var plan by remember { mutableStateOf<EnhancePlan?>(null) }
     var framed by remember { mutableStateOf<Bitmap?>(null) }
+    var selectedOverlay by remember { mutableStateOf<Long?>(null) }
+    var textDraft by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     LaunchedEffect(uri) {
         val b = MediaStoreRepo.loadBitmap(ctx, uri, 2400) ?: return@LaunchedEffect
