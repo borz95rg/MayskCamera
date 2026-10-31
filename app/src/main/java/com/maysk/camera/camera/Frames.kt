@@ -93,6 +93,30 @@ object Frames {
         }
     }
 
+    /**
+     * Рамка для живого превью: та же рамка, что будет на фото, но с прозрачным «окном»
+     * на месте снимка — накладывается поверх кадра камеры до съёмки.
+     */
+    fun previewOverlay(w: Int, h: Int, f: FrameSpec): Bitmap {
+        val key = Color.rgb(0, 255, 1)
+        val src = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).apply { eraseColor(key) }
+        val out = apply(src, f).let { if (it.isMutable) it else it.copy(Bitmap.Config.ARGB_8888, true) }
+        val px = IntArray(out.width * out.height)
+        out.getPixels(px, 0, out.width, 0, 0, out.width, out.height)
+        for (i in px.indices) {
+            val c = px[i]
+            val r = (c shr 16) and 255; val g = (c shr 8) and 255; val b = c and 255
+            // ключевой зелёный → прозрачно; на сглаженных краях — частично
+            if (g > 150 && r < 90 && b < 90) {
+                val k = ((g - 150) / 105f).coerceIn(0f, 1f)
+                val a = ((1f - k) * ((c ushr 24) and 255)).toInt()
+                px[i] = if (a < 10) 0 else (a shl 24) or (c and 0x00FFFFFF)
+            }
+        }
+        out.setPixels(px, 0, out.width, 0, 0, out.width, out.height)
+        return out
+    }
+
     private fun roundedPhoto(c: Canvas, src: Bitmap, dst: RectF, radiusPx: Float, shadow: Boolean) {
         val p = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         if (shadow) {

@@ -486,11 +486,15 @@ object ImageOps {
             val c = px[i]; val b = base[i]
             val bl = (((b shr 16) and 255) * 0.299f + ((b shr 8) and 255) * 0.587f + (b and 255) * 0.114f) / 255f
             val cl = (((c shr 16) and 255) * 0.299f + ((c shr 8) and 255) * 0.587f + (c and 255) * 0.114f) / 255f
+            // Без ореолов: тени поднимаем по max(пиксель, окрестность) — светлый объект рядом с тёмным
+            // фоном не «светится»; света прижимаем по min(...) — тёмное рядом со светлым не темнеет.
+            val lb = max(bl, cl)
+            val hb = min(bl, cl)
             var gain = 1f
-            if (bl < 0.5f) gain += shadows * (0.5f - bl) * 2.2f
-            else gain -= highlights * (bl - 0.5f) * 0.9f
-            val det = 1f + detail * (cl - bl) * 1.5f
-            val g = (gain * det).coerceIn(0.4f, 3f)
+            if (lb < 0.5f) gain += shadows * (0.5f - lb) * 2.0f
+            if (hb > 0.5f) gain -= highlights * (hb - 0.5f) * 0.9f
+            val det = 1f + detail * (cl - bl).coerceIn(-0.15f, 0.15f) * 1.5f
+            val g = (gain * det).coerceIn(0.5f, 2.6f)
             px[i] = (0xFF shl 24) or (clamp255(((c shr 16) and 255) * g) shl 16) or
                 (clamp255(((c shr 8) and 255) * g) shl 8) or clamp255((c and 255) * g)
         }
@@ -587,12 +591,12 @@ object ImageOps {
     /** Ночная обработка одного (уже сложенного) кадра. */
     fun nightProcess(src: Bitmap): Bitmap {
         val st = stats(src)
-        var out = colorMatrix(src, autoLevelsMatrix(st, 0.8f))
-        val lift = ((0.35f - st.mean) * 2.5f).coerceIn(0f, 0.9f)
-        out = localToneMap(out, 0.4f + lift, 0.5f, 0.2f)
-        out = denoise(out, 0.6f)
-        out = clarity(out, 0.18f)
-        return smartSharpen(out, 0.45f)
+        // ночью «серый мир» уводит цвет в фиолетовый от ламп — баланс белого не трогаем
+        var out = colorMatrix(src, autoLevelsMatrix(st, 0.5f, wb = false))
+        val lift = ((0.3f - st.mean) * 2f).coerceIn(0f, 0.6f)
+        out = localToneMap(out, 0.3f + lift, 0.45f, 0.1f)
+        out = denoise(out, 0.35f)
+        return smartSharpen(out, 0.25f)
     }
 
     /** Коррекция дисторсии широкоугольника (бочка) через сетку. k > 0 — выпрямление. */

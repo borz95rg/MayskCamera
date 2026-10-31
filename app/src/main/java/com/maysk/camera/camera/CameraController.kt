@@ -155,6 +155,10 @@ class CameraController(private val context: Context) {
     var manual: ManualSettings = ManualSettings()
         private set
 
+    /** Темно (для видео): разрешаем более длинную выдержку — кадр светлее. */
+    @Volatile
+    var lowLight: Boolean = false
+
     private val _state = MutableStateFlow(CamState())
     val state: StateFlow<CamState> = _state
 
@@ -380,7 +384,11 @@ class CameraController(private val context: Context) {
             else -> if (cfg.mode.recordsVideo) cfg.fps else 0
         }
         if (wantFps > 0) {
-            ranges?.filter { it.upper == wantFps }?.maxByOrNull { it.lower }?.let {
+            // Ночное видео: диапазон вроде [15, 30] — камера сама снижает FPS в темноте ради света
+            val night = lowLight && wantFps <= 30 && cfg.mode != CameraMode.CINEMATIC
+            val pick = if (night) ranges?.filter { it.upper == 30 && it.lower in 8..24 }?.minByOrNull { it.lower }
+            else null
+            (pick ?: ranges?.filter { it.upper == wantFps }?.maxByOrNull { it.lower })?.let {
                 b.setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(it.lower, it.upper))
             }
         }

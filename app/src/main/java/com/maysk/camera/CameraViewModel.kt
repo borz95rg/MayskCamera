@@ -356,15 +356,27 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             (aiOn || (aiVideo && s.aiVideoLight)) && faceDarkState -> 0.35f
             else -> 0f
         }
-        val tGain = if ((aiOn || (aiVideo && s.aiVideoLight)) && dark && u.mode != CameraMode.NIGHT) 1.08f else 1f
+        val veryDark = l.mean < 0.12f
+        val tGain = when {
+            aiVideo && s.aiVideoLight && veryDark -> 1.2f
+            (aiOn || (aiVideo && s.aiVideoLight)) && dark && u.mode != CameraMode.NIGHT -> 1.08f
+            else -> 1f
+        }
         val tDenoise = when {
             u.mode == CameraMode.NIGHT -> 0.6f
-            aiVideo && s.aiVideoNoise && dark -> 0.45f
+            aiVideo && s.aiVideoNoise && veryDark -> 0.7f
+            aiVideo && s.aiVideoNoise && dark -> 0.5f
             aiVideo && s.aiVideoNoise -> 0.1f
             aiOn && dark -> 0.3f
             else -> 0f
         }
-        val tLift = if (u.mode == CameraMode.NIGHT) 0.5f else if (aiOn && dark) 0.15f else 0f
+        val tLift = when {
+            u.mode == CameraMode.NIGHT -> 0.5f
+            aiVideo && s.aiVideoLight && veryDark -> 0.45f
+            aiVideo && s.aiVideoLight && dark -> 0.3f
+            aiOn && dark -> 0.15f
+            else -> 0f
+        }
         // плавное приближение к цели (~0.5 с), чтобы яркость не прыгала
         val k = 0.12f
         smFaceLight += (tFaceLight - smFaceLight) * k
@@ -424,6 +436,17 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
         }
+        // Ночное видео: включаем/выключаем с запасом, чтобы не дёргать камеру
+        if (u.mode.recordsVideo && settings.value.aiVideoLight) {
+            val want = if (controller.lowLight) l.mean < 0.24f else l.mean < 0.14f
+            if (want != controller.lowLight) {
+                controller.lowLight = want
+                controller.applyRequestOptions(u.manual)
+                if (want) toast("🌙 Ночное видео: больше света и шумоподавление")
+            }
+        } else if (controller.lowLight) {
+            controller.lowLight = false
+        }
         // фокус-трекинг лица: только автофокус и только если лицо заметно сместилось
         val tracking = u.mode in setOf(CameraMode.INTERVIEW, CameraMode.CINEMATIC, CameraMode.VLOG, CameraMode.PORTRAIT) || aiOn
         if (tracking && l.faces.isNotEmpty() && now - lastFaceFocus > 3000 && u.manual.focusDiopters == null && controller.minFocusDiopters() > 0f) {
@@ -475,13 +498,14 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             val ext = c.activeExtension
             val raw: Bitmap = when {
                 u.mode == CameraMode.NIGHT && ext == null -> {
-                    // Night Pro: 8 кадров, в полной темноте — 10
-                    val count = if (live.value.mean < 0.12f) 10 else 8
+                    // Night Pro: 6 кадров (в полной темноте 8) — меньше времени держать телефон
+                    val count = if (live.value.mean < 0.1f) 8 else 6
                     _ui.update { it.copy(busy = "Ночной режим: серия из $count кадров", progress = 0f) }
                     playShutter()
                     val frames = controller.captureBurst(count, mirror) { n -> _ui.update { it.copy(progress = n / count.toFloat()) } }
                     _ui.update { it.copy(busy = "AI обработка ночи…", progress = null) }
-                    withContext(Dispatchers.Default) { ImageOps.nightProcess(ImageOps.stackFrames(frames)) }
+                    // опорный — самый резкий кадр, смазанные кадры отбрасываются
+                    withContext(Dispatchers.Default) { ImageOps.nightProcess(ImageOps.smartStack(frames)) }
                 }
                 (u.hdr || u.mode == CameraMode.LANDSCAPE) && ext == null && !u.front -> {
                     _ui.update { it.copy(busy = "HDR: брекетинг экспозиции") }

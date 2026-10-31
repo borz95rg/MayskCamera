@@ -113,6 +113,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.asImageBitmap
 import com.maysk.camera.ai.SceneType
 import com.maysk.camera.ui.theme.MayskTheme
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -321,6 +322,8 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                         onSwipe = { dy -> if (dy < 0) drawerOpen = true else { drawerOpen = false; panel = Panel.NONE } }
                     )
             )
+            // Рамка видна в кадре ещё до снимка
+            if (!isVideo) ui.frame?.let { FrameLiveOverlay(it) }
             if (settings.grid) GridOverlay()
             if (settings.horizon && !recordingNow) HorizonOverlay()
             if (ui.arMask != com.maysk.camera.camera.ArMask.NONE) ArMaskOverlay(live.faces, ui.arMask, cam.front)
@@ -859,6 +862,28 @@ private fun FaceOverlay(faces: List<android.graphics.RectF>, mirror: Boolean) {
             drawLine(col, Offset(l + w, t), Offset(l + w - k, t), sw); drawLine(col, Offset(l + w, t), Offset(l + w, t + k), sw)
             drawLine(col, Offset(l, t + h), Offset(l + k, t + h), sw); drawLine(col, Offset(l, t + h), Offset(l, t + h - k), sw)
             drawLine(col, Offset(l + w, t + h), Offset(l + w - k, t + h), sw); drawLine(col, Offset(l + w, t + h), Offset(l + w, t + h - k), sw)
+        }
+    }
+}
+
+/** Живой предпросмотр рамки поверх кадра камеры. */
+@Composable
+private fun FrameLiveOverlay(spec: com.maysk.camera.camera.FrameSpec) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val wPx = with(density) { maxWidth.toPx() }.toInt().coerceAtLeast(16) / 2
+        val hPx = with(density) { maxHeight.toPx() }.toInt().coerceAtLeast(16) / 2
+        var overlay by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+        LaunchedEffect(spec, wPx, hPx) {
+            overlay = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                runCatching { com.maysk.camera.camera.Frames.previewOverlay(wPx, hPx, spec) }.getOrNull()
+            }
+        }
+        overlay?.let {
+            androidx.compose.foundation.Image(
+                it.asImageBitmap(), contentDescription = null,
+                contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }

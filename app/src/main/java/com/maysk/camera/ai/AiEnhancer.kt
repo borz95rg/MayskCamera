@@ -49,18 +49,19 @@ object AiEnhancer {
         if (warmCast > 0.12f) detected += "Жёлтый оттенок" else if (warmCast < -0.1f) detected += "Холодный оттенок"
 
         val levels = if (st.p2 > 0.06f || st.p98 < 0.9f) 0.8f else 0.4f
-        val shadows = ((0.4f - st.mean) * 2f + st.shadows * 2f).coerceIn(0f, 0.8f)
+        val shadows = ((0.4f - st.mean) * 1.6f + st.shadows * 1.5f).coerceIn(0f, 0.5f)
         val highlights = (st.highlights * 6f).coerceIn(0f, 0.7f)
         val saturation = ((0.3f - st.saturation) * 1.5f).coerceIn(-0.1f, 0.35f) + if (v.scene == SceneType.FOOD) 0.15f else 0f
         val warmth = (-warmCast * 1.5f).coerceIn(-0.4f, 0.4f) + if (v.scene == SceneType.PORTRAIT) 0.05f else 0f
-        val denoise = if (st.mean < 0.3f) 0.6f else 0.15f
+        // HAL уже давит шум — дополнительно только чуть-чуть, иначе фото «замыливается»
+        val denoise = if (st.mean < 0.25f) 0.3f else 0.06f
         // Резкость умеренная, детали добавляет «чёткость» (локальный контраст)
         val sharpen = when (v.scene) {
             SceneType.LANDSCAPE, SceneType.CITY, SceneType.DOCUMENT, SceneType.CAR -> 0.3f
             SceneType.PORTRAIT, SceneType.BABY, SceneType.GROUP -> 0.08f
             else -> 0.18f
         }
-        val clarity = when (v.scene) {
+        val clarity = if (st.mean < 0.22f) 0.05f else when (v.scene) {
             SceneType.LANDSCAPE, SceneType.CITY, SceneType.CAR, SceneType.SKY -> 0.35f
             SceneType.PORTRAIT, SceneType.BABY, SceneType.GROUP -> 0.12f
             else -> 0.25f
@@ -118,7 +119,7 @@ object AiEnhancer {
         if (p.skin > 0f || p.faceLight > 0f) out = ImageOps.skinSmooth(out, p.skin, faces, p.faceLight)
         val eyes = p.faces.flatMap { it.eyes }
         if (eyes.isNotEmpty()) out = ImageOps.enhanceEyes(out, eyes, max(0.01f, (p.faces.maxOf { it.box.width() }) * 0.09f), p.eyes)
-        out = ImageOps.smartSharpen(out, p.sharpen * 1.6f)
+        out = ImageOps.smartSharpen(out, p.sharpen * 1.3f)
         if (withFilter && p.filterId != null) out = ImageOps.colorMatrix(out, Filters.blended(Filters.byId(p.filterId), 0.6f))
         return out
     }
@@ -179,7 +180,8 @@ object PhotoPipeline {
             out = ImageOps.clarity(out, spec.clarity)
         }
         // AI Super Detail — по умолчанию для всех снимков
-        if (spec.detail > 0f) out = ImageOps.smartSharpen(out, spec.detail)
+        // (в AI-режиме резкость уже добавлена планом — не удваиваем, иначе белые контуры)
+        if (spec.detail > 0f && !spec.aiAuto) out = ImageOps.smartSharpen(out, spec.detail)
         if (spec.sharpen > 0f) out = ImageOps.smartSharpen(out, spec.sharpen)
         val f = Filters.byId(spec.filterId)
         if (f != Filters.ORIGINAL && spec.filterIntensity > 0f) {
