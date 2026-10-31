@@ -95,3 +95,7 @@ app/src/main/java/com/maysk/camera/
 ## Подпись для Google Play
 Создайте keystore, добавьте в Secrets репозитория `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`
 и замените `signingConfig` в `app/build.gradle.kts` на собственный.
+
+## Snap AR update (2026-10-31)
+
+See [`SNAP_AR_STATUS_RU.md`](SNAP_AR_STATUS_RU.md) for the implemented Snap photo vault, one-view flow, photo text/date overlay, hold-to-record gesture, recording zoom swipe, extra face-anchored overlays, still-image background compositor, and the explicit remaining limitations. Do not treat the remaining 3D/live-video work as completed.

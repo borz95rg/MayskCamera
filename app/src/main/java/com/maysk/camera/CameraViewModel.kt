@@ -106,6 +106,12 @@ data class CameraUi(
     val frame: com.maysk.camera.camera.FrameSpec? = null,
     /** AR-маска на лице. */
     val arMask: com.maysk.camera.camera.ArMask = com.maysk.camera.camera.ArMask.NONE,
+    val snapMode: Boolean = false,
+    val snapSeconds: Int = 10,
+    val snapCaption: String = "",
+    val snapDrawing: List<List<android.graphics.PointF>> = emptyList(),
+    val snapDrawMode: Boolean = false,
+    val snapSticker: String = "",
     /** Раскладка двойной камеры. */
     val dualLayout: DualLayout = DualLayout.PIP,
 )
@@ -357,6 +363,23 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setFilterIntensity(v: Float) { _ui.update { it.copy(filterIntensity = v) }; updateEffect() }
     fun setFrame(f: com.maysk.camera.camera.FrameSpec?) { _ui.update { it.copy(frame = f) }; updateEffect() }
     fun setArMask(m: com.maysk.camera.camera.ArMask) = _ui.update { it.copy(arMask = m) }
+    fun setSnapMode(enabled: Boolean) = _ui.update { it.copy(snapMode = enabled) }
+    fun setSnapDuration(seconds: Int) = _ui.update { it.copy(snapSeconds = seconds.coerceIn(3, 30)) }
+    fun setSnapCaption(value: String) = _ui.update { it.copy(snapCaption = value.take(80)) }
+    fun setSnapDrawMode(enabled: Boolean) = _ui.update { it.copy(snapDrawMode = enabled) }
+    fun clearSnapDrawing() = _ui.update { it.copy(snapDrawing = emptyList()) }
+    fun addSnapPoint(x: Float, y: Float, newStroke: Boolean = false) = _ui.update { state ->
+        val point = android.graphics.PointF(x.coerceIn(0f, 1f), y.coerceIn(0f, 1f))
+        val strokes = state.snapDrawing.toMutableList()
+        if (newStroke || strokes.isEmpty()) strokes.add(mutableListOf(point)) else strokes[strokes.lastIndex] = strokes.last() + point
+        state.copy(snapDrawing = strokes.takeLast(30))
+    }
+    fun setSnapSticker(value: String) = _ui.update { it.copy(snapSticker = value.take(4)) }
+    private val snapVault by lazy { com.maysk.camera.media.SnapVault(ctx) }
+    fun pendingSnaps() = snapVault.pending()
+    fun consumeSnap(id: String) = snapVault.consumeOnce(id)
+    fun startRecordingHold() { if (!_ui.value.mode.recordsVideo) return; if (!cam.value.recording) startRecording() }
+    fun stopRecordingHold() { if (cam.value.recording) stopRecording() }
     fun setDualLayout(l: DualLayout) = _ui.update { it.copy(dualLayout = l) }
     fun setEffect(e: Effect) { _ui.update { it.copy(effect = e) }; updateEffect() }
     fun setTimelapseInterval(v: Float) = _ui.update { it.copy(timelapseInterval = v) }
@@ -679,9 +702,17 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 modeWarmSat = modeWarmSat(u.mode),
                 arMask = u.arMask,
             )
-            val out = withContext(Dispatchers.Default) { PhotoPipeline.process(raw, spec) }
-            val uri = MediaStoreRepo.saveJpeg(ctx, out, quality, location)
-            _ui.update { it.copy(busy = null, progress = null, lastUri = uri ?: it.lastUri, lastIsVideo = false, message = if (uri != null) null else "Не удалось сохранить") }
+            val processed = withContext(Dispatchers.Default) { PhotoPipeline.process(raw, spec) }
+            val out = if (u.snapCaption.isNotBlank() || u.snapDrawing.isNotEmpty() || u.snapSticker.isNotBlank()) withContext(Dispatchers.Default) {
+                com.maysk.camera.media.SnapOverlay.render(processed, u.snapCaption, System.currentTimeMillis(), u.snapSticker, u.snapDrawing)
+            } else processed
+            if (u.snapMode) {
+                val entry = withContext(Dispatchers.IO) { snapVault.save(out, u.snapSeconds) }
+                _ui.update { it.copy(busy = null, progress = null, message = "Snap создан · просмотр один раз · ${u.snapSeconds} сек. · ${entry.id.takeLast(6)}") }
+            } else {
+                val uri = MediaStoreRepo.saveJpeg(ctx, out, quality, location)
+                _ui.update { it.copy(busy = null, progress = null, lastUri = uri ?: it.lastUri, lastIsVideo = false, message = if (uri != null) null else "Не удалось сохранить") }
+            }
         } catch (t: Throwable) {
             _ui.update { it.copy(busy = null, progress = null, message = "Ошибка съёмки: ${t.message ?: t.javaClass.simpleName}") }
         }

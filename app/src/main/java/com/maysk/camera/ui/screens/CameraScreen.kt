@@ -17,6 +17,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,6 +68,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Button
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -156,7 +159,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.atan2
 
-private enum class Panel { NONE, FILTERS, EFFECTS, BEAUTY, PRO, EV, FRAMES, MASKS }
+private enum class Panel { NONE, FILTERS, EFFECTS, BEAUTY, PRO, EV, FRAMES, MASKS, SNAP, OVERLAY }
 
 /** Угол поворота иконок при горизонтальном положении телефона. */
 private val LocalIconRotation = androidx.compose.runtime.compositionLocalOf { 0f }
@@ -320,7 +323,12 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                             }
                         },
                         onZoom = { z -> vm.controller.setZoom(vm.cam.value.zoom * z) },
-                        onSwipe = { dy -> if (dy < 0) drawerOpen = true else { drawerOpen = false; panel = Panel.NONE } }
+                        onSwipe = { dy ->
+                            if (cam.recording) {
+                                val factor = kotlin.math.exp((-dy * 0.0025f).coerceIn(-0.35f, 0.35f))
+                                vm.controller.setZoom((vm.cam.value.zoom * factor).coerceIn(vm.cam.value.minZoom, vm.cam.value.maxZoom))
+                            } else if (dy < 0) drawerOpen = true else { drawerOpen = false; panel = Panel.NONE }
+                        }
                     )
             )
             // Рамка видна в кадре ещё до снимка
@@ -330,6 +338,25 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
             if (settings.horizon && !recordingNow) HorizonOverlay()
             if (ui.arMask != com.maysk.camera.camera.ArMask.NONE) ArMaskOverlay(live.faces, ui.arMask, cam.front)
             else FaceOverlay(live.faces.map { it.box }, cam.front)
+            if (ui.snapDrawing.isNotEmpty() || ui.snapDrawMode) Canvas(
+                Modifier.fillMaxSize().pointerInput(ui.snapDrawMode) {
+                    if (ui.snapDrawMode) detectDragGestures(
+                        onDragStart = { p -> vm.addSnapPoint(p.x / size.width, p.y / size.height, true) },
+                        onDrag = { change, _ -> change.consume(); vm.addSnapPoint(change.position.x / size.width, change.position.y / size.height) }
+                    )
+                }
+            ) {
+                ui.snapDrawing.forEach { stroke ->
+                    stroke.zipWithNext().forEach { (a, b) ->
+                        drawLine(Color.Cyan, Offset(a.x * size.width, a.y * size.height), Offset(b.x * size.width, b.y * size.height), strokeWidth = size.width * 0.009f)
+                    }
+                }
+            }
+            if (ui.snapCaption.isNotBlank()) Text(
+                ui.snapCaption, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp)
+            )
+            if (ui.snapSticker.isNotBlank()) Text(ui.snapSticker, fontSize = 34.sp, modifier = Modifier.align(Alignment.TopEnd).padding(18.dp))
             focusPoint?.let { p ->
                 Box(
                     Modifier
@@ -474,6 +501,22 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                         ) { vm.controller.setExposureIndex(it.toInt()) }
                         Panel.FRAMES -> MayskTheme(com.maysk.camera.ui.theme.AppTheme.DARK) { FramePicker(ui.frame, videoMode = isVideo) { vm.setFrame(it) } }
                         Panel.MASKS -> MasksPanel(ui.arMask) { vm.setArMask(it) }
+                        Panel.SNAP -> SnapPanel(vm, ui.snapMode, ui.snapSeconds, nav.openViewer)
+                        Panel.OVERLAY -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Текст на фотографии", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            OutlinedTextField(value = ui.snapCaption, onValueChange = vm::setSnapCaption,
+                                modifier = Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text("Добавить подпись…") })
+                            Text("Подпись, дата, стикер и рисунок будут встроены в сохранённое фото.", color = Color.LightGray, fontSize = 11.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Pill(if (ui.snapDrawMode) "Рисуй пальцем: ВКЛ" else "Рисовать пальцем", ui.snapDrawMode) { vm.setSnapDrawMode(!ui.snapDrawMode) }
+                                Pill("Очистить рисунок", false) { vm.clearSnapDrawing() }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf("", "✨", "❤️", "🔥", "⭐", "🌸", "🦋").forEach { sticker ->
+                                    Pill(if (sticker.isBlank()) "Без" else sticker, ui.snapSticker == sticker) { vm.setSnapSticker(sticker) }
+                                }
+                            }
+                        }
                         Panel.NONE -> Unit
                     }
                 }
@@ -493,6 +536,11 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                 LazyRow(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
                     items(com.maysk.camera.DualLayout.entries) { l -> Pill(l.title, ui.dualLayout == l) { vm.setDualLayout(l) } }
                 }
+            }
+            if (!recordingNow) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
+                Pill(if (ui.snapMode) "Snap: ВКЛ" else "Snap", ui.snapMode) { vm.setSnapMode(!ui.snapMode); panel = Panel.SNAP }
+                Pill("Текст / дата", panel == Panel.OVERLAY || ui.snapCaption.isNotBlank()) { panel = if (panel == Panel.OVERLAY) Panel.NONE else Panel.OVERLAY }
+                Pill("Мои Snap", panel == Panel.SNAP) { panel = if (panel == Panel.SNAP) Panel.NONE else Panel.SNAP }
             }
             ZoomBar(cam.zoom, cam.minZoom, cam.maxZoom, cam.hasUltraWide, ui.ultraWide, Modifier.align(Alignment.CenterHorizontally).padding(vertical = 6.dp)) { vm.selectZoom(it) }
 
@@ -536,8 +584,8 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                     video = isVideo, recording = recordingNow,
                     busy = ui.busy != null && !ui.timelapseActive && !ui.panoramaActive,
                     burst = ui.burstCount,
-                    onLongStart = if (isVideo) null else ({ haptic.performHapticFeedback(HapticFeedbackType.LongPress); vm.startBurst() }),
-                    onLongEnd = { vm.stopBurst() },
+                    onLongStart = if (isVideo) ({ haptic.performHapticFeedback(HapticFeedbackType.LongPress); vm.startRecordingHold() }) else ({ haptic.performHapticFeedback(HapticFeedbackType.LongPress); vm.startBurst() }),
+                    onLongEnd = { if (isVideo) vm.stopRecordingHold() else vm.stopBurst() },
                 ) {
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     drawerOpen = false
@@ -596,6 +644,8 @@ private fun ToolsDrawer(
         add(Tile(Icons.Filled.Face, "Красота", ui.beautyOn) { onPanel(Panel.BEAUTY) })
         add(Tile(Icons.Filled.AutoFixHigh, "Эффекты", ui.effect != Effect.NONE) { onPanel(Panel.EFFECTS) })
         add(Tile(Icons.Filled.Mood, "AR маски", ui.arMask != com.maysk.camera.camera.ArMask.NONE) { onPanel(Panel.MASKS) })
+        add(Tile(Icons.Filled.Timer, "Snap", ui.snapMode) { vm.setSnapMode(!ui.snapMode); onPanel(Panel.SNAP) })
+        add(Tile(Icons.Filled.AutoFixHigh, "Текст / дата", ui.snapCaption.isNotBlank()) { onPanel(Panel.OVERLAY) })
         add(Tile(Icons.Filled.Exposure, "EV", panel == Panel.EV) { onPanel(Panel.EV) })
         add(Tile(Icons.Filled.CropFree, "Рамки", ui.frame != null) { onPanel(Panel.FRAMES) })
         if (!isVideo) add(Tile(Icons.Filled.HdrOn, "HDR", ui.hdr) { vm.toggleHdr() })
@@ -941,6 +991,29 @@ private fun ArMaskOverlay(faces: List<com.maysk.camera.ai.FaceInfo>, mask: com.m
 }
 
 /** Выбор AR-маски. */
+@Composable
+private fun SnapPanel(vm: CameraViewModel, enabled: Boolean, seconds: Int, openViewer: (Uri, Boolean) -> Unit) {
+    var refresh by remember { mutableIntStateOf(0) }
+    val entries = remember(refresh) { vm.pendingSnaps() }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Text("Исчезающие снимки", color = Color.White, fontWeight = FontWeight.SemiBold)
+            Pill(if (enabled) "Режим включён" else "Режим выключен", enabled) { vm.setSnapMode(!enabled) }
+        }
+        Text("Фото хранится зашифрованным до 24 часов; после открытия удаляется по выбранному таймеру. Внешняя запись экрана не блокируется.", color = Color.LightGray, fontSize = 11.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(3, 5, 10, 30).forEach { n -> Pill("${n}с", seconds == n) { vm.setSnapDuration(n) } }
+        }
+        Text("Ожидают просмотра: ${entries.size}", color = Color.White, fontSize = 12.sp)
+        entries.forEach { entry ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Snap ${entry.id.takeLast(6)} · просмотр ${entry.durationSeconds} сек.", color = Color.White, fontSize = 12.sp)
+                Button(onClick = { vm.consumeSnap(entry.id)?.let { openViewer(it, false) }; refresh++ }) { Text("Открыть 1 раз") }
+            }
+        }
+    }
+}
+
 @Composable
 private fun MasksPanel(current: com.maysk.camera.camera.ArMask, onSelect: (com.maysk.camera.camera.ArMask) -> Unit) {
     Column {

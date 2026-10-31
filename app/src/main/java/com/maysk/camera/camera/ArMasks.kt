@@ -36,6 +36,11 @@ enum class ArMask(val title: String, val emoji: String) {
     HERO("Супергерой", "🦸"),
     ROBOT("Робот", "🤖"),
     ASTRONAUT("Космонавт", "👨‍🚀"),
+    MAKEUP("Макияж", "💄"),
+    FOX("Лисёнок", "🦊"),
+    CYBER("Киберпанк", "⚡"),
+    HEART_EYES("Сердца вместо глаз", "💗"),
+    RAINBOW("Радужный ореол", "🌈"),
 }
 
 object ArMasks {
@@ -226,6 +231,35 @@ object ArMasks {
                 c.drawCircle(0f, cy, r, p(Color.argb(40, 180, 220, 255)))
                 c.drawCircle(0f, cy, r, p(Color.argb(230, 230, 236, 240), Paint.Style.STROKE, d * 0.22f))
                 c.drawArc(RectF(-r * 0.75f, cy - r * 0.8f, r * 0.2f, cy), 200f, 60f, false, p(Color.argb(150, 255, 255, 255), Paint.Style.STROKE, d * 0.08f))
+            }
+            ArMask.MAKEUP -> {
+                val blush = p(Color.argb(95, 255, 70, 125))
+                c.drawOval(RectF(-d * 0.92f, d * 0.35f, -d * 0.42f, d * 0.72f), blush)
+                c.drawOval(RectF(d * 0.42f, d * 0.35f, d * 0.92f, d * 0.72f), blush)
+                val lip = p(Color.argb(210, 220, 35, 95), Paint.Style.STROKE, d * 0.09f)
+                c.drawOval(RectF(-d * 0.27f, d * 1.05f, d * 0.27f, d * 1.34f), lip)
+            }
+            ArMask.FOX -> {
+                for (sx in listOf(-1f, 1f)) {
+                    val ear = Path().apply { moveTo(sx*d*0.48f, top+d*0.12f); lineTo(sx*d*0.78f, top-d*0.85f); lineTo(sx*d*1.08f, top+d*0.25f); close() }
+                    c.drawPath(ear, p(Color.parseColor("#E87524")))
+                    val inner = Path().apply { moveTo(sx*d*0.65f, top+d*0.05f); lineTo(sx*d*0.78f, top-d*0.55f); lineTo(sx*d*0.94f, top+d*0.12f); close() }
+                    c.drawPath(inner, p(Color.parseColor("#FFD4A3")))
+                }
+                c.drawOval(RectF(-d*0.18f, d*0.62f, d*0.18f, d*0.88f), p(Color.parseColor("#33231D")))
+            }
+            ArMask.CYBER -> {
+                val neon = p(Color.parseColor("#00E5FF"), Paint.Style.STROKE, d*0.07f).apply { maskFilter = BlurMaskFilter(d*0.13f, BlurMaskFilter.Blur.NORMAL) }
+                c.drawOval(RectF(-d*1.05f, -d*0.48f, d*1.05f, d*1.48f), neon)
+                c.drawLine(-d*0.95f, d*0.45f, d*0.95f, d*0.45f, p(Color.parseColor("#FF2E93"), Paint.Style.STROKE, d*0.05f))
+                c.drawCircle(0f, top-d*0.22f, d*0.12f, p(Color.parseColor("#B388FF")))
+            }
+            ArMask.HEART_EYES -> {
+                for (sx in listOf(-0.5f, 0.5f)) heart(c, sx*d, -d*0.02f, d*0.23f, p(Color.parseColor("#FF4081")))
+            }
+            ArMask.RAINBOW -> {
+                val colors = intArrayOf(Color.RED, Color.YELLOW, Color.GREEN, Color.CYAN, Color.BLUE, Color.MAGENTA)
+                colors.forEachIndexed { i, color -> c.drawArc(RectF(-d*(1.05f+i*0.035f), top-d*0.9f+i*d*0.06f, d*(1.05f+i*0.035f), top+d*0.65f), 205f, 130f, false, p(color, Paint.Style.STROKE, d*0.045f)) }
             }
             ArMask.NONE -> Unit
         }
