@@ -112,7 +112,3 @@ The camera now exposes face masks directly in the live camera controls (makeup, 
 ## Расширенный каталог MayskCamera Effects
 
 Под кнопкой «✦ Эффекты» расположен отдельный каталог: животные, макияж, 3D-стили/фантазия, очки, стикеры, фильтры, фон, анимационные эффекты, рамки и рисование. Добавлены 2D face-tracked маски волка, льва, оленя, енота, совы, единорога, дракона и бабочки. Важно: это Canvas AR-наложения, не настоящие 3D-модели; наложения Compose пока не встраиваются в MP4.
-
-### AR masks in recorded video
-
-AR overlays are composited by the CameraX GL `SurfaceProcessor` into the shared PREVIEW/VIDEO_CAPTURE effect stream. ML Kit face landmarks drive the current 2D face-anchored masks, so the selected mask is intended to appear in the encoded MP4 as well as the live preview. These overlays are not yet true 3D assets; dense face mesh, 3D animal models and expression-driven deformation remain future work.

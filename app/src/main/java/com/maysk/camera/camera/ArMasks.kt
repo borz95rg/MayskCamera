@@ -372,7 +372,7 @@ object ArMasks {
                         close()
                     }
                     c.drawPath(ear, p(base))
-                    c.drawCircle(sx*d*0.73f, top+d*0.12f, d*0.12f, p(Color.WHITE.copy(alpha=0.72f)))
+                    c.drawCircle(sx*d*0.73f, top+d*0.12f, d*0.12f, p(Color.argb(184, 255, 255, 255)))
                 }
                 if (m == ArMask.DEER) {
                     for (sx in listOf(-1f, 1f)) {
