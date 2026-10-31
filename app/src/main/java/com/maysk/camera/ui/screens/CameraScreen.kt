@@ -371,17 +371,6 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                         }
                 )
             }
-            // Компактная кнопка эффектов справа — не занимает место в обычном режиме.
-            if (!recordingNow) Box(
-                Modifier.align(Alignment.CenterEnd).padding(end = 12.dp)
-                    .size(52.dp).clip(CircleShape)
-                    .background(Brush.linearGradient(listOf(Color(0xFF073D35), Color(0xFF101820))))
-                    .border(1.dp, Color(0xFF39D7B0), CircleShape)
-                    .clickable { panel = if (panel == Panel.BROWSER) Panel.NONE else Panel.BROWSER }
-                    .padding(2.dp), contentAlignment = Alignment.Center
-            ) {
-                Text("✦", color = Color(0xFF7FFFE0), fontSize = 25.sp, fontWeight = FontWeight.Bold)
-            }
             focusPoint?.let { p ->
                 Box(
                     Modifier
@@ -603,6 +592,14 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     panel = Panel.NONE; drawerOpen = false; vm.setMode(it)
                 }, onMore = nav.openModes)
+                // Отдельный режим выбора эффектов: не меняет PHOTO/VIDEO, поэтому
+                // затвор продолжает снимать фото или видео в выбранном режиме камеры.
+                Box(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 2.dp), contentAlignment = Alignment.Center) {
+                    Pill(if (panel == Panel.BROWSER) "✦ Эффекты открыты" else "✦ Эффекты", panel == Panel.BROWSER) {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        panel = if (panel == Panel.BROWSER) Panel.NONE else Panel.BROWSER
+                    }
+                }
             }
 
             Row(
@@ -1104,11 +1101,11 @@ private fun EffectBrowser(
     onFrames: () -> Unit,
     onDraw: () -> Unit,
 ) {
-    val categories = listOf("Маски", "Животные", "Макияж", "3D-стили", "Фильтры", "Фон", "Рамки", "Рисование")
+    val categories = listOf("Все", "Животные", "Макияж", "3D-стили", "Очки", "Фильтры", "Фон", "Рамки", "Рисование")
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Эффекты", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            Text("Свайпайте, чтобы листать", color = Color.LightGray, fontSize = 10.sp)
+            Text("Эффекты для фото и видео", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text("Листайте →", color = Color.LightGray, fontSize = 10.sp)
         }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             items(categories) { item ->
@@ -1116,11 +1113,12 @@ private fun EffectBrowser(
             }
         }
         when (category) {
-            "Маски", "Животные", "Макияж", "3D-стили" -> {
+            "Все", "Животные", "Макияж", "3D-стили", "Очки" -> {
                 val masks = when (category) {
                     "Животные" -> listOf(com.maysk.camera.camera.ArMask.CAT, com.maysk.camera.camera.ArMask.DOG, com.maysk.camera.camera.ArMask.BUNNY, com.maysk.camera.camera.ArMask.FOX, com.maysk.camera.camera.ArMask.PANDA, com.maysk.camera.camera.ArMask.TIGER, com.maysk.camera.camera.ArMask.BEAR)
                     "Макияж" -> listOf(com.maysk.camera.camera.ArMask.MAKEUP, com.maysk.camera.camera.ArMask.GLAM_MAKEUP, com.maysk.camera.camera.ArMask.FRECKLES, com.maysk.camera.camera.ArMask.BLUSH)
                     "3D-стили" -> listOf(com.maysk.camera.camera.ArMask.CYBER, com.maysk.camera.camera.ArMask.ROBOT, com.maysk.camera.camera.ArMask.ASTRONAUT, com.maysk.camera.camera.ArMask.HERO, com.maysk.camera.camera.ArMask.PIRATE, com.maysk.camera.camera.ArMask.DEVIL, com.maysk.camera.camera.ArMask.HALO)
+                    "Очки" -> listOf(com.maysk.camera.camera.ArMask.SUNGLASSES, com.maysk.camera.camera.ArMask.NEON_GLASSES, com.maysk.camera.camera.ArMask.HEART_EYES)
                     else -> com.maysk.camera.camera.ArMask.entries.filter { it != com.maysk.camera.camera.ArMask.NONE }
                 }
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -1134,7 +1132,7 @@ private fun EffectBrowser(
                     }
                 }
                 if (category == "Макияж") Pill("Настройки Face Beauty", false, onClick = onBeauty)
-                if (category == "3D-стили") Text("Это стилизованные 2D AR-наложения. Настоящие 3D-модели и деформация лица пока не подключены.", color = Color.LightGray, fontSize = 10.sp)
+                if (category == "3D-стили") Text("Сейчас доступны стилизованные AR-наложения; полноценные 3D-модели и деформация лица ещё не подключены.", color = Color.LightGray, fontSize = 10.sp)
             }
             "Фильтры" -> LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 items(com.maysk.camera.camera.Filters.all.filter { it.id != "original" }, key = { it.id }) { f ->
