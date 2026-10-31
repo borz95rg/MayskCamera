@@ -429,7 +429,8 @@ object VideoTools {
             c.drawRect(0f, 0f, feather.toFloat(), faded.height.toFloat(), p)
             canvas.drawBitmap(faded, ox.toFloat(), top, paint)
         }
-        return out
+        // убираем пустые (чёрные) края
+        return ImageOps.autoCropEmpty(out)
     }
 
     private fun horizontalShift(a: Bitmap, b: Bitmap): Pair<Int, Int> {

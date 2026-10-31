@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Tonality
 import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.Details
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.HdrOn
@@ -116,7 +117,7 @@ import kotlinx.coroutines.withContext
 
 enum class EditTool(val title: String) {
     NONE(""), CROP("Обрезка"), BRIGHT("Яркость"), CONTRAST("Контраст"), SAT("Насыщенность"),
-    FILTER("Фильтры"), LIGHT("Свет"), COLOR("Цвет"), DETAIL("Детали"), REMOVE("Удалить объект")
+    FILTER("Фильтры"), LIGHT("Свет"), COLOR("Цвет"), DETAIL("Детали"), FRAME("Рамки"), REMOVE("Удалить объект")
 }
 
 /** Лёгкая модель параметров редактора. */
@@ -125,6 +126,7 @@ private data class Adjust(
     val shadows: Float = 0f, val highlights: Float = 0f, val detail: Float = 0f,
     val filterId: String = "original", val filterIntensity: Float = 1f,
     val crop: Int = 0, val rotation: Int = 0,
+    val frame: com.maysk.camera.camera.FrameSpec? = null,
 ) {
     fun matrix(): FloatArray {
         val adj = Filters.adjustments(brightness, contrast, saturation, warmth)
@@ -162,6 +164,7 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
     val strokes = remember { mutableStateListOf<Offset>() }
     var brush by remember { mutableFloatStateOf(0.04f) }
     var plan by remember { mutableStateOf<EnhancePlan?>(null) }
+    var framed by remember { mutableStateOf<Bitmap?>(null) }
 
     fun setBase(b: Bitmap, pushUndo: Boolean = true) {
         base?.let { if (pushUndo) { undo.add(it); if (undo.size > 5) undo.removeAt(0) } }
@@ -227,9 +230,18 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
         delay(120)
         processed = withContext(Dispatchers.Default) {
             var r = ImageOps.localToneMap(p, adj.shadows, adj.highlights, 0.2f)
-            if (adj.detail > 0f) r = ImageOps.sharpen(r, adj.detail * 1.5f)
+            if (adj.detail > 0f) r = ImageOps.smartSharpen(r, adj.detail * 1.2f)
             r
         }
+    }
+
+    // Превью с рамкой (цвет уже «вшит», чтобы рамка не окрашивалась фильтром)
+    LaunchedEffect(processed, preview, adj) {
+        val f = adj.frame
+        val p = processed ?: preview
+        if (f == null || p == null) { framed = null; return@LaunchedEffect }
+        delay(80)
+        framed = withContext(Dispatchers.Default) { com.maysk.camera.camera.Frames.apply(ImageOps.colorMatrix(p, adj.matrix()), f) }
     }
 
     fun save() {
@@ -239,10 +251,12 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
             val out = withContext(Dispatchers.Default) {
                 var r = ImageOps.crop(b, cropRect(b.width, b.height, cropOptions[adj.crop].second))
                 r = ImageOps.localToneMap(r, adj.shadows, adj.highlights, 0.2f)
-                if (adj.detail > 0f) r = ImageOps.sharpen(r, adj.detail * 1.5f)
+                if (adj.detail > 0f) r = ImageOps.smartSharpen(r, adj.detail * 1.2f)
                 r = ImageOps.colorMatrix(r, adj.matrix())
                 val f = Filters.byId(adj.filterId)
-                ImageOps.vignetteAndFade(r, f.vignette * adj.filterIntensity, f.fade * adj.filterIntensity)
+                r = ImageOps.vignetteAndFade(r, f.vignette * adj.filterIntensity, f.fade * adj.filterIntensity)
+                adj.frame?.let { fr -> r = com.maysk.camera.camera.Frames.apply(r, fr) }
+                r
             }
             val saved = MediaStoreRepo.saveJpeg(ctx, out, 95, name = MediaStoreRepo.newName("EDIT"))
             busy = null
@@ -260,11 +274,12 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
 
         // ---------- изображение ----------
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-            val shown = processed ?: preview
+            val showFrame = framed != null && tool != EditTool.REMOVE && tool != EditTool.CROP
+            val shown = (if (showFrame) framed else null) ?: processed ?: preview
             if (shown != null) {
                 val aspect = shown.width.toFloat() / shown.height
                 val cr = cropOptions[adj.crop].second
-                val cf = ColorFilter.colorMatrix(ColorMatrix(adj.matrix()))
+                val cf = if (showFrame) null else ColorFilter.colorMatrix(ColorMatrix(adj.matrix()))
                 Box(
                     Modifier
                         .aspectRatio(aspect, matchHeightConstraintsFirst = maxWidth / maxHeight > aspect)
@@ -382,6 +397,7 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
                     }
                     if (adj.filterId != "original") LabeledSlider("Интенсивность", adj.filterIntensity) { adj = adj.copy(filterIntensity = it) }
                 }
+                EditTool.FRAME -> FramePicker(adj.frame) { adj = adj.copy(frame = it) }
                 EditTool.REMOVE -> Column {
                     Text("Закрасьте объект пальцем, затем нажмите «Удалить»", color = Maysk.colors.muted, fontSize = 12.sp)
                     LabeledSlider("Размер кисти", brush, "${(brush * 100).toInt()}", 0.01f..0.12f) { brush = it }
@@ -411,8 +427,43 @@ fun EditorScreen(uri: Uri, startTool: String?, onBack: () -> Unit, onSaved: (Uri
                 EditTool.CROP to Icons.Filled.Crop, EditTool.BRIGHT to Icons.Filled.Brightness6, EditTool.CONTRAST to Icons.Filled.Tonality,
                 EditTool.SAT to Icons.Filled.InvertColors, EditTool.FILTER to Icons.Filled.PhotoFilter, EditTool.LIGHT to Icons.Filled.WbSunny,
                 EditTool.COLOR to Icons.Filled.Thermostat, EditTool.DETAIL to Icons.Filled.Details,
+                EditTool.FRAME to Icons.Filled.CropFree,
             )
             items(tools) { (t, ic) -> EditAction(ic, t.title, tool == t) { tool = if (tool == t) EditTool.NONE else t } }
+        }
+    }
+}
+
+/** Выбор рамки: стиль, цвет, толщина, прозрачность, скругление, тень. */
+@Composable
+fun FramePicker(current: com.maysk.camera.camera.FrameSpec?, onChange: (com.maysk.camera.camera.FrameSpec?) -> Unit) {
+    val F = com.maysk.camera.camera.Frames
+    Column {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            item { Pill("Без рамки", current == null) { onChange(null) } }
+            items(com.maysk.camera.camera.FrameStyle.entries) { st ->
+                Pill(st.title, current?.style == st) { onChange(F.default(st)) }
+            }
+        }
+        if (current != null) {
+            LazyRow(Modifier.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(F.palette) { col ->
+                    Box(
+                        Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Color(col))
+                            .border(2.dp, if (current.color == col) Accent else Color.Gray.copy(alpha = 0.5f), CircleShape)
+                            .clickable { onChange(current.copy(color = col)) }
+                    )
+                }
+            }
+            LabeledSlider("Толщина", current.thickness) { onChange(current.copy(thickness = it)) }
+            LabeledSlider("Скругление углов", current.radius) { onChange(current.copy(radius = it)) }
+            LabeledSlider("Прозрачность", 1f - current.opacity, "${((1f - current.opacity) * 100).toInt()}") { onChange(current.copy(opacity = 1f - it)) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Pill("Тень", current.shadow) { onChange(current.copy(shadow = !current.shadow)) }
+            }
         }
     }
 }
@@ -571,6 +622,7 @@ fun SceneAnalysisScreen(uri: Uri, onBack: () -> Unit, onSaved: (Uri) -> Unit, on
     val scope = rememberCoroutineScope()
     var img by remember { mutableStateOf<Bitmap?>(null) }
     var plan by remember { mutableStateOf<EnhancePlan?>(null) }
+    var framed by remember { mutableStateOf<Bitmap?>(null) }
     var busy by remember { mutableStateOf(false) }
     LaunchedEffect(uri) {
         val b = MediaStoreRepo.loadBitmap(ctx, uri, 2400) ?: return@LaunchedEffect

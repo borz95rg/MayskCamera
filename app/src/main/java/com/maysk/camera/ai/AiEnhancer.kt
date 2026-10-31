@@ -118,7 +118,7 @@ object AiEnhancer {
         if (p.skin > 0f || p.faceLight > 0f) out = ImageOps.skinSmooth(out, p.skin, faces, p.faceLight)
         val eyes = p.faces.flatMap { it.eyes }
         if (eyes.isNotEmpty()) out = ImageOps.enhanceEyes(out, eyes, max(0.01f, (p.faces.maxOf { it.box.width() }) * 0.09f), p.eyes)
-        out = ImageOps.sharpen(out, p.sharpen)
+        out = ImageOps.smartSharpen(out, p.sharpen * 1.6f)
         if (withFilter && p.filterId != null) out = ImageOps.colorMatrix(out, Filters.blended(Filters.byId(p.filterId), 0.6f))
         return out
     }
@@ -140,6 +140,10 @@ data class PhotoSpec(
     val clarity: Float = 0.15f,
     /** Общая коррекция контраста: отрицательное — мягче. */
     val contrast: Float = -0.06f,
+    /** AI Super Detail (умная резкость без ореолов). */
+    val detail: Float = 0.35f,
+    /** Рамка для фото. */
+    val frame: com.maysk.camera.camera.FrameSpec? = null,
 )
 
 object PhotoPipeline {
@@ -172,7 +176,9 @@ object PhotoPipeline {
             if (spec.contrast != 0f) out = ImageOps.colorMatrix(out, Filters.adjustments(0f, spec.contrast, 0f, 0f))
             out = ImageOps.clarity(out, spec.clarity)
         }
-        if (spec.sharpen > 0f) out = ImageOps.sharpen(out, spec.sharpen)
+        // AI Super Detail — по умолчанию для всех снимков
+        if (spec.detail > 0f) out = ImageOps.smartSharpen(out, spec.detail)
+        if (spec.sharpen > 0f) out = ImageOps.smartSharpen(out, spec.sharpen)
         val f = Filters.byId(spec.filterId)
         if (f != Filters.ORIGINAL && spec.filterIntensity > 0f) {
             out = ImageOps.colorMatrix(out, Filters.blended(f, spec.filterIntensity))
@@ -182,6 +188,7 @@ object PhotoPipeline {
             Vision.personMask(ImageOps.limitSize(out, 512))?.let { (m, w, h) -> out = ImageOps.blurBackground(out, m, w, h, 0.55f) }
         }
         out = ImageOps.applyEffect(out, spec.effect)
+        spec.frame?.let { out = com.maysk.camera.camera.Frames.apply(out, it) }
         return out
     }
 }

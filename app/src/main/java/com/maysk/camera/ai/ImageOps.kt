@@ -174,6 +174,40 @@ object ImageOps {
         return fromPixels(px, w, h)
     }
 
+    /**
+     * AI Super Detail: «умная» резкость. Усиливает детали двух масштабов (мелкие и средние)
+     * только по яркости (без цветного шума), не трогает ровные области (шум не растёт)
+     * и ограничивает выброс на контрастных краях (нет белых ореолов).
+     */
+    fun smartSharpen(src: Bitmap, amount: Float): Bitmap {
+        if (amount <= 0.01f) return src
+        val w = src.width; val h = src.height
+        val px = pixels(src)
+        val b1 = boxBlur(px, w, h, 1)
+        val b2 = boxBlur(px, w, h, 2)
+        val limit = 18f + 22f * amount
+        for (i in px.indices) {
+            val c = px[i]
+            val r = (c shr 16) and 255; val g = (c shr 8) and 255; val b = c and 255
+            val l = r * 0.299f + g * 0.587f + b * 0.114f
+            val c1 = b1[i]; val c2 = b2[i]
+            val l1 = ((c1 shr 16) and 255) * 0.299f + ((c1 shr 8) and 255) * 0.587f + (c1 and 255) * 0.114f
+            val l2 = ((c2 shr 16) and 255) * 0.299f + ((c2 shr 8) and 255) * 0.587f + (c2 and 255) * 0.114f
+            val fine = l - l1
+            val mid = l - l2
+            val texture = abs(mid)
+            // порог шума: мелкие колебания (шум сенсора) не усиливаем
+            val gate = ((texture - 2.5f) / 6f).coerceIn(0f, 1f)
+            var d = (fine * 0.9f + mid * 0.6f) * amount * gate
+            if (d > limit) d = limit else if (d < -limit) d = -limit
+            // в светах и тенях мягче, чтобы не было «хруста»
+            val tone = 1f - abs(l / 255f - 0.5f) * 0.8f
+            d *= tone
+            px[i] = (0xFF shl 24) or (clamp255(r + d) shl 16) or (clamp255(g + d) shl 8) or clamp255(b + d)
+        }
+        return fromPixels(px, w, h)
+    }
+
     /** Шумоподавление с сохранением краёв: смешиваем с размытием там, где разница мала. */
     fun denoise(src: Bitmap, strength: Float): Bitmap {
         if (strength <= 0.01f) return src
@@ -507,12 +541,17 @@ object ImageOps {
         return Pair((bx / s).roundToInt(), (by / s).roundToInt())
     }
 
-    /** Многокадровое шумоподавление: выравнивание + усреднение. */
+    /**
+     * Многокадровое шумоподавление: выравнивание + усреднение с отбраковкой.
+     * Пиксели, сильно отличающиеся от опорного кадра (движение людей, машин), не смешиваются —
+     * поэтому нет «призраков», а шум уходит.
+     */
     fun stackFrames(frames: List<Bitmap>): Bitmap {
         val ref = frames[0]
         val w = ref.width; val h = ref.height
         val sr = IntArray(w * h); val sg = IntArray(w * h); val sb = IntArray(w * h); val cnt = ShortArray(w * h)
         val row = IntArray(w)
+        val refRow = IntArray(w)
         for ((idx, f) in frames.withIndex()) {
             val fr = if (f.width == w && f.height == h) f else Bitmap.createScaledBitmap(f, w, h, true)
             val (dx, dy) = if (idx == 0) Pair(0, 0) else estimateShift(ref, fr)
@@ -520,12 +559,19 @@ object ImageOps {
                 val sy = y + dy
                 if (sy < 0 || sy >= h) continue
                 fr.getPixels(row, 0, w, 0, sy, w, 1)
+                if (idx > 0) ref.getPixels(refRow, 0, w, 0, y, w, 1)
                 for (x in 0 until w) {
                     val sx = x + dx
                     if (sx < 0 || sx >= w) continue
                     val c = row[sx]
+                    val cr = (c shr 16) and 255; val cg = (c shr 8) and 255; val cb = c and 255
+                    if (idx > 0) {
+                        val q = refRow[x]
+                        val diff = abs(cr - ((q shr 16) and 255)) + abs(cg - ((q shr 8) and 255)) + abs(cb - (q and 255))
+                        if (diff > 60) continue   // движение — не смешиваем
+                    }
                     val i = y * w + x
-                    sr[i] += (c shr 16) and 255; sg[i] += (c shr 8) and 255; sb[i] += c and 255
+                    sr[i] += cr; sg[i] += cg; sb[i] += cb
                     cnt[i]++
                 }
             }
@@ -544,9 +590,9 @@ object ImageOps {
         var out = colorMatrix(src, autoLevelsMatrix(st, 0.8f))
         val lift = ((0.35f - st.mean) * 2.5f).coerceIn(0f, 0.9f)
         out = localToneMap(out, 0.4f + lift, 0.5f, 0.2f)
-        out = denoise(out, 0.7f)
-        out = clarity(out, 0.15f)
-        return sharpen(out, 0.15f)
+        out = denoise(out, 0.6f)
+        out = clarity(out, 0.18f)
+        return smartSharpen(out, 0.45f)
     }
 
     /** Коррекция дисторсии широкоугольника (бочка) через сетку. k > 0 — выпрямление. */
@@ -573,6 +619,25 @@ object ImageOps {
         // обрезаем пустые края
         val m = (1f - 1f / scale) / 2f
         return crop(out, RectF(m, m, 1f - m, 1f - m))
+    }
+
+    /** Обрезает прозрачные/пустые края (например, у панорамы), чтобы не было чёрных полос. */
+    fun autoCropEmpty(src: Bitmap): Bitmap {
+        val w = src.width; val h = src.height
+        val px = pixels(src)
+        fun opaque(x: Int, y: Int) = ((px[y * w + x] ushr 24) and 255) > 250
+        val step = max(1, w / 400)
+        var top = 0; var bottom = h - 1
+        // верх/низ: строка годится, если в ней почти нет пустых пикселей
+        fun rowOk(y: Int): Boolean { var bad = 0; var n = 0; var x = 0; while (x < w) { if (!opaque(x, y)) bad++; n++; x += step }; return bad <= n / 200 }
+        while (top < h / 2 && !rowOk(top)) top++
+        while (bottom > h / 2 && !rowOk(bottom)) bottom--
+        fun colOk(x: Int): Boolean { var bad = 0; var n = 0; var y = top; while (y <= bottom) { if (!opaque(x, y)) bad++; n++; y += step }; return bad <= n / 200 }
+        var left = 0; var right = w - 1
+        while (left < w / 2 && !colOk(left)) left++
+        while (right > w / 2 && !colOk(right)) right--
+        if (right - left < w / 3 || bottom - top < h / 3) return src
+        return Bitmap.createBitmap(src, left, top, right - left + 1, bottom - top + 1)
     }
 
     /** Удаление объектов: заполнение маски диффузией от краёв (несколько масштабов). */
@@ -636,7 +701,7 @@ object ImageOps {
         out = colorMatrix(out, autoLevelsMatrix(st, 1f, wb = true))
         out = colorMatrix(out, ColorMatrix().apply { setSaturation(if (st.saturation < 0.08f) 1f else 1.25f) }.array)
         out = localToneMap(out, 0.3f, 0.3f, 0.4f)
-        return sharpen(out, 0.7f, 1)
+        return smartSharpen(out, 0.7f)
     }
 
     /**

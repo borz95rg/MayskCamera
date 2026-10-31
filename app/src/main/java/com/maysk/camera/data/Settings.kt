@@ -15,7 +15,26 @@ import kotlinx.coroutines.flow.map
 private val Context.dataStore by preferencesDataStore(name = "maysk_settings")
 
 enum class VideoRes(val label: String) { HD("720p"), FHD("1080p"), UHD("4K"), UHD8K("8K") }
-enum class Stabilization(val label: String) { OFF("Выкл."), STANDARD("Норм."), ULTRA("Ультра") }
+/**
+ * Уровни стабилизации. [tau] — насколько плавно камера «следует» за движением (с),
+ * [margin] — запас кадра на компенсацию (доля). Уровни с tau > 0 — собственная гироскопная
+ * стабилизация Maysk (EIS) поверх оптической, STANDARD — встроенная стабилизация телефона.
+ */
+enum class Stabilization(val label: String, val hint: String, val tau: Float, val margin: Float) {
+    OFF("Выкл.", "Без стабилизации", 0f, 0f),
+    STANDARD("Обычная", "Встроенная стабилизация телефона", 0f, 0f),
+    WALKING("Ходьба", "Прогулка, съёмка с рук", 0.35f, 0.08f),
+    VEHICLE("Машина", "Вибрации, ямы, дорога", 0.55f, 0.10f),
+    RUNNING("Бег", "Сильная тряска", 0.75f, 0.12f),
+    ULTRA("Ультра AI", "Максимальное сглаживание", 1.0f, 0.12f),
+    GIMBAL("Gimbal", "Как на стабилизаторе: плавные повороты и остановки", 1.6f, 0.14f),
+    AUTO("Авто", "AI сам выбирает уровень по движению", -1f, 0.10f);
+
+    val software: Boolean get() = this != OFF && this != STANDARD
+}
+
+/** Формат кадра. FULL — на весь экран телефона. */
+enum class Aspect(val label: String) { FULL("Весь экран"), R16_9("16:9"), R4_3("4:3 (макс. детали)") }
 enum class ColorProfile(val label: String) { STANDARD("Стандартный"), LOG("Плоский (LOG)") }
 enum class Bitrate(val label: String, val mbpsPer1080: Int) { LOW("Низкий", 8), STANDARD("Средний", 16), HIGH("Высокий", 28) }
 enum class AudioMode(val label: String, val hint: String) {
@@ -41,7 +60,12 @@ data class AppSettings(
     // видео
     val videoRes: VideoRes = VideoRes.FHD,
     val fps: Int = 30,
-    val stabilization: Stabilization = Stabilization.STANDARD,
+    val stabilization: Stabilization = Stabilization.AUTO,
+    val photoAspect: Aspect = Aspect.FULL,
+    val videoAspect: Aspect = Aspect.FULL,
+    /** Калибровка стабилизации, если на конкретном телефоне оси инвертированы. */
+    val stabInvertX: Boolean = false,
+    val stabInvertY: Boolean = false,
     val colorProfile: ColorProfile = ColorProfile.STANDARD,
     val bitrate: Bitrate = Bitrate.HIGH,
     val audioMode: AudioMode = AudioMode.VOICE,
@@ -73,7 +97,11 @@ class SettingsRepository(private val context: Context) {
         val mirror = booleanPreferencesKey("mirror")
         val videoRes = stringPreferencesKey("video_res")
         val fps = intPreferencesKey("fps")
-        val stab = stringPreferencesKey("stab")
+        val stab = stringPreferencesKey("stab2")
+        val photoAspect = stringPreferencesKey("photo_aspect")
+        val videoAspect = stringPreferencesKey("video_aspect")
+        val invX = booleanPreferencesKey("stab_inv_x")
+        val invY = booleanPreferencesKey("stab_inv_y")
         val color = stringPreferencesKey("color_profile")
         val bitrate = stringPreferencesKey("bitrate")
         val audio = stringPreferencesKey("audio")
@@ -110,6 +138,10 @@ class SettingsRepository(private val context: Context) {
             videoRes = enum(K.videoRes, d.videoRes),
             fps = this[K.fps] ?: d.fps,
             stabilization = enum(K.stab, d.stabilization),
+            photoAspect = enum(K.photoAspect, d.photoAspect),
+            videoAspect = enum(K.videoAspect, d.videoAspect),
+            stabInvertX = this[K.invX] ?: d.stabInvertX,
+            stabInvertY = this[K.invY] ?: d.stabInvertY,
             colorProfile = enum(K.color, d.colorProfile),
             bitrate = enum(K.bitrate, d.bitrate),
             audioMode = enum(K.audio, d.audioMode),
@@ -142,6 +174,10 @@ class SettingsRepository(private val context: Context) {
             p[K.videoRes] = s.videoRes.name
             p[K.fps] = s.fps
             p[K.stab] = s.stabilization.name
+            p[K.photoAspect] = s.photoAspect.name
+            p[K.videoAspect] = s.videoAspect.name
+            p[K.invX] = s.stabInvertX
+            p[K.invY] = s.stabInvertY
             p[K.color] = s.colorProfile.name
             p[K.bitrate] = s.bitrate.name
             p[K.audio] = s.audioMode.name

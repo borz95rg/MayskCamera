@@ -50,6 +50,18 @@ class GlEffectProcessor : SurfaceProcessor {
     @Volatile
     var params: EffectParams = EffectParams()
 
+    /** Гироскопная стабилизация (null/выкл — кадр без изменений). */
+    @Volatile
+    var stabilizer: com.maysk.camera.camera.GyroStabilizer? = null
+
+    private val flipV = FloatArray(16)
+    private val upToTex = FloatArray(16)
+    private val texToUp = FloatArray(16)
+    private val stabM = FloatArray(16)
+    private val tmpA = FloatArray(16)
+    private val tmpB = FloatArray(16)
+    private val finalM = FloatArray(16)
+
     private val thread = HandlerThread("MayskGL").apply { start() }
     private val handler = Handler(thread.looper)
     val executor: Executor = Executor { r -> handler.post(r) }
@@ -214,15 +226,37 @@ class GlEffectProcessor : SurfaceProcessor {
         }
         val time = (SystemClock.elapsedRealtime() - start) / 1000f
 
+        // Стабилизация: матрица выборки в вертикальных координатах экрана (u вправо, v вниз),
+        // переведённая в пространство текстуры камеры: M = T · S · T⁻¹
+        val corr = stabilizer?.takeIf { it.level.software }?.correction
+        val stabilize = corr != null && (corr[3] > 1.0001f || corr[0] != 0f || corr[1] != 0f)
+        if (stabilize && corr != null) {
+            android.opengl.Matrix.setIdentityM(flipV, 0)
+            flipV[5] = -1f; flipV[13] = 1f                       // v (вниз) → t (вверх)
+            android.opengl.Matrix.multiplyMM(upToTex, 0, texMatrix, 0, flipV, 0)
+            android.opengl.Matrix.invertM(texToUp, 0, upToTex, 0)
+            android.opengl.Matrix.setIdentityM(stabM, 0)
+            android.opengl.Matrix.translateM(stabM, 0, 0.5f + corr[0], 0.5f + corr[1], 0f)
+            android.opengl.Matrix.rotateM(stabM, 0, corr[2], 0f, 0f, 1f)
+            android.opengl.Matrix.scaleM(stabM, 0, 1f / corr[3], 1f / corr[3], 1f)
+            android.opengl.Matrix.translateM(stabM, 0, -0.5f, -0.5f, 0f)
+            android.opengl.Matrix.multiplyMM(tmpA, 0, upToTex, 0, stabM, 0)
+            android.opengl.Matrix.multiplyMM(tmpB, 0, tmpA, 0, texToUp, 0)   // T·S·T⁻¹
+        }
+
         for ((out, egl) in outputs) {
             if (!EGL14.eglMakeCurrent(display, egl, egl, context)) continue
             out.updateTransformMatrix(outMatrix, texMatrix)
+            val matrixForDraw = if (stabilize) {
+                android.opengl.Matrix.multiplyMM(finalM, 0, tmpB, 0, outMatrix, 0)
+                finalM
+            } else outMatrix
             val size = out.size
             GLES20.glViewport(0, 0, size.width, size.height)
             GLES20.glUseProgram(program)
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
             GLES20.glUniform1i(u("uTex"), 0)
-            GLES20.glUniformMatrix4fv(u("uTexMatrix"), 1, false, outMatrix, 0)
+            GLES20.glUniformMatrix4fv(u("uTexMatrix"), 1, false, matrixForDraw, 0)
             GLES20.glUniform2f(u("uTexel"), 1f / inputSize.width, 1f / inputSize.height)
             GLES20.glUniformMatrix4fv(u("uColor"), 1, false, colorMat, 0)
             GLES20.glUniform4fv(u("uOffset"), 1, colorOffset, 0)

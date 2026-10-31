@@ -291,9 +291,40 @@ fun VideoSettingsScreen(vm: CameraViewModel, onBack: () -> Unit) {
                     vm.updateSettings({ it.copy(fps = fpsList[i]) })
                 }
             }
-            SettingRow(Icons.Filled.Straighten, "Стабилизация", subtitle = "AI " + s.stabilization.label) { open = if (open == "s") null else "s" }
-            if (open == "s") Box(Modifier.padding(horizontal = 12.dp)) {
-                ChoiceRow(Stabilization.entries.map { it.label }, s.stabilization.ordinal) { i -> vm.updateSettings({ it.copy(stabilization = Stabilization.entries[i]) }) }
+            SettingRow(Icons.Filled.Straighten, "Стабилизация (антитряска)", subtitle = s.stabilization.label + " — " + s.stabilization.hint) { open = if (open == "s") null else "s" }
+            if (open == "s") Column(Modifier.padding(horizontal = 12.dp)) {
+                Stabilization.entries.forEach { st ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (st == s.stabilization) Accent.copy(alpha = 0.18f) else Color.Transparent)
+                            .clickable { vm.updateSettings({ it.copy(stabilization = st) }, rebindAfter = true) }
+                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(st.label, color = if (st == s.stabilization) Accent else Maysk.colors.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text(st.hint, color = Maysk.colors.muted, fontSize = 12.sp)
+                        }
+                        if (st.software) Text("AI", color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                Text(
+                    "AI-уровни немного увеличивают кадр (запас 7–14%) и компенсируют тряску по гироскопу. " +
+                        "Если на вашем телефоне картинка при движении «уезжает» не туда — включите калибровку:",
+                    color = Maysk.colors.muted, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp)
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
+                    com.maysk.camera.ui.components.Pill("Инверсия ←→", s.stabInvertX) { vm.updateSettings({ it.copy(stabInvertX = !it.stabInvertX) }, rebindAfter = true) }
+                    com.maysk.camera.ui.components.Pill("Инверсия ↑↓", s.stabInvertY) { vm.updateSettings({ it.copy(stabInvertY = !it.stabInvertY) }, rebindAfter = true) }
+                }
+            }
+            SettingRow(Icons.Filled.Videocam, "Формат кадра видео", subtitle = s.videoAspect.label) { open = if (open == "va") null else "va" }
+            if (open == "va") Box(Modifier.padding(horizontal = 12.dp)) {
+                ChoiceRow(com.maysk.camera.data.Aspect.entries.map { it.label }, s.videoAspect.ordinal) { i ->
+                    vm.updateSettings({ it.copy(videoAspect = com.maysk.camera.data.Aspect.entries[i]) })
+                }
             }
             SettingRow(Icons.Filled.HdrOn, "Профиль цвета", subtitle = s.colorProfile.label) { open = if (open == "c") null else "c" }
             if (open == "c") Box(Modifier.padding(horizontal = 12.dp)) {
@@ -332,8 +363,8 @@ fun AiVideoScreen(vm: CameraViewModel, onBack: () -> Unit) {
             contentAlignment = Alignment.Center
         ) { Icon(Icons.Filled.Videocam, null, tint = Color.White, modifier = Modifier.size(64.dp)) }
         Column(Modifier.weight(1f).padding(horizontal = 20.dp)) {
-            CheckLine("Стабилизация движения", s.stabilization != Stabilization.OFF) {
-                vm.updateSettings({ it.copy(stabilization = if (it.stabilization == Stabilization.OFF) Stabilization.ULTRA else Stabilization.OFF) }, rebindAfter = true)
+            CheckLine("AI стабилизация движения (${s.stabilization.label})", s.stabilization != Stabilization.OFF) {
+                vm.updateSettings({ it.copy(stabilization = if (it.stabilization == Stabilization.OFF) Stabilization.AUTO else Stabilization.OFF) }, rebindAfter = true)
             }
             CheckLine("Улучшение освещения", s.aiVideoLight) { vm.updateSettings({ it.copy(aiVideoLight = !it.aiVideoLight) }) }
             CheckLine("Подавление шума", s.aiVideoNoise) { vm.updateSettings({ it.copy(aiVideoNoise = !it.aiVideoNoise) }) }

@@ -87,6 +87,8 @@ data class CameraUi(
     val updateAvailable: com.maysk.camera.data.UpdateInfo? = null,
     /** Прогресс загрузки обновления 0..1, null — не качается. */
     val updateProgress: Float? = null,
+    /** Рамка, которая добавляется к фото. */
+    val frame: com.maysk.camera.camera.FrameSpec? = null,
 )
 
 class CameraViewModel(app: Application) : AndroidViewModel(app) {
@@ -103,6 +105,10 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Внешние нажатия затвора (громкость, голос). */
     val shutterEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 2)
+
+    /** Гироскопная стабилизация видео. */
+    val stabilizer = com.maysk.camera.camera.GyroStabilizer(app)
+    private var fov: Pair<Float, Float> = 0.45f to 0.6f
 
     private var owner: LifecycleOwner? = null
     private var previewView: PreviewView? = null
@@ -129,6 +135,11 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             if (r is com.maysk.camera.data.UpdateCheck.Available) _ui.update { it.copy(updateAvailable = r.info) }
         }
         sound.load(MediaActionSound.SHUTTER_CLICK)
+        controller.processor.stabilizer = stabilizer
+        // зум меняет угол обзора — пересчитываем компенсацию стабилизации
+        viewModelScope.launch {
+            cam.collect { c -> val (tu, tv) = fov; stabilizer.tanHalfFovU = tu / c.zoom.coerceAtLeast(0.3f); stabilizer.tanHalfFovV = tv / c.zoom.coerceAtLeast(0.3f) }
+        }
         controller.analyzer = LiveAnalyzer(
             enabled = { settings.value.smartAi || _ui.value.aiPro || needsFaces() },
             onResult = { scene -> live.value = scene; viewModelScope.launch { onLiveScene(scene) } }
@@ -147,7 +158,33 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Уровень стабилизации с учётом режима: Кино — Gimbal, Влог — Ультра. */
+    fun effectiveStabilization(): com.maysk.camera.data.Stabilization {
+        val u = _ui.value
+        if (!u.mode.recordsVideo) return com.maysk.camera.data.Stabilization.OFF
+        return when (u.mode) {
+            CameraMode.CINEMATIC -> com.maysk.camera.data.Stabilization.GIMBAL
+            CameraMode.VLOG -> com.maysk.camera.data.Stabilization.ULTRA
+            else -> settings.value.stabilization
+        }
+    }
+
+    private fun configureStabilizer() {
+        val s = settings.value
+        val level = effectiveStabilization()
+        fov = controller.fovTangents()
+        stabilizer.front = _ui.value.front
+        stabilizer.invertX = s.stabInvertX
+        stabilizer.invertY = s.stabInvertY
+        stabilizer.tanHalfFovU = fov.first / cam.value.zoom.coerceAtLeast(0.3f)
+        stabilizer.tanHalfFovV = fov.second / cam.value.zoom.coerceAtLeast(0.3f)
+        val use = level.software && cam.value.effectsActive && stabilizer.available
+        stabilizer.level = if (use) level else com.maysk.camera.data.Stabilization.OFF
+        if (use) stabilizer.start() else stabilizer.stop()
+    }
+
     fun detach() {
+        stabilizer.stop()
         stopVoice()
         controller.unbind()
         owner = null
@@ -157,6 +194,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun rebind() {
         val o = owner ?: return
         val pv = previewView ?: return
+        // ViewPort (кадр = экран) известен только после разметки — ждём её
+        if (pv.width == 0 || pv.height == 0) { pv.post { rebind() }; return }
         val s = settings.value
         val u = _ui.value
         val hdrExt = if (u.hdr && (u.mode == CameraMode.PHOTO || u.mode == CameraMode.AI_AUTO) &&
@@ -174,7 +213,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 ultraWideLens = u.ultraWide,
                 videoRes = res,
                 fps = if (u.mode == CameraMode.VIDEO_4K) 60 else s.fps,
-                stabilization = s.stabilization,
+                stabilization = effectiveStabilization(),
                 bitrateMbps = s.bitrate.mbpsPer1080,
                 flashMode = u.flash.captureMode,
                 liveEffects = true,
@@ -184,6 +223,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             )
         )
         controller.applyRequestOptions(u.manual)
+        configureStabilizer()
         if (u.mode == CameraMode.VIDEO_8K) toast("8K недоступно через CameraX на этом устройстве — запись в максимальном качестве (4K)")
         updateEffect()
     }
@@ -229,6 +269,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setBeauty(on: Boolean) { _ui.update { it.copy(beautyOn = on) }; updateEffect() }
     fun setFilter(id: String) { _ui.update { it.copy(filterId = id) }; updateEffect() }
     fun setFilterIntensity(v: Float) { _ui.update { it.copy(filterIntensity = v) }; updateEffect() }
+    fun setFrame(f: com.maysk.camera.camera.FrameSpec?) = _ui.update { it.copy(frame = f) }
     fun setEffect(e: Effect) { _ui.update { it.copy(effect = e) }; updateEffect() }
     fun setTimelapseInterval(v: Float) = _ui.update { it.copy(timelapseInterval = v) }
     fun consumeMessage() = _ui.update { it.copy(message = null) }
@@ -250,6 +291,19 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     /** Выбор зума: 0.5x — логический сверхширик или отдельная камера, 1x/2x/3x — плавно. */
     fun selectZoom(z: Float) {
         val c = cam.value
+        // Во время записи нельзя переключать физическую камеру (это перезапуск записи) —
+        // используем плавный цифровой/логический зум без остановки видео
+        if (c.recording) {
+            viewModelScope.launch {
+                when {
+                    z < 0.95f && c.minZoom < 0.95f -> controller.animateZoom(maxOf(z, c.minZoom), 450)
+                    z < 0.95f -> toast("0.5x на этом телефоне — отдельная камера. Включите её до начала записи")
+                    _ui.value.ultraWide -> toast("Запись идёт на сверхширокой камере. Переключение — после остановки")
+                    else -> controller.animateZoom(z, 450)
+                }
+            }
+            return
+        }
         viewModelScope.launch {
             if (z < 0.95f) {
                 if (c.minZoom < 0.95f) {
@@ -409,9 +463,11 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             val ext = c.activeExtension
             val raw: Bitmap = when {
                 u.mode == CameraMode.NIGHT && ext == null -> {
-                    _ui.update { it.copy(busy = "Ночной режим: серия кадров", progress = 0f) }
+                    // Night Pro: 8 кадров, в полной темноте — 10
+                    val count = if (live.value.mean < 0.12f) 10 else 8
+                    _ui.update { it.copy(busy = "Ночной режим: серия из $count кадров", progress = 0f) }
                     playShutter()
-                    val frames = controller.captureBurst(6, mirror) { n -> _ui.update { it.copy(progress = n / 6f) } }
+                    val frames = controller.captureBurst(count, mirror) { n -> _ui.update { it.copy(progress = n / count.toFloat()) } }
                     _ui.update { it.copy(busy = "AI обработка ночи…", progress = null) }
                     withContext(Dispatchers.Default) { ImageOps.nightProcess(ImageOps.stackFrames(frames)) }
                 }
@@ -431,7 +487,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     withContext(Dispatchers.Default) {
                         // самый резкий кадр + совпавшие кадры → меньше шума, детали сохраняются
                         val b = ImageOps.smartStack(frames)
-                        ImageOps.sharpen(ImageOps.denoise(b, 0.25f), 0.15f)
+                        ImageOps.denoise(b, 0.25f)
                     }
                 }
                 u.front && ext == null -> {
@@ -443,7 +499,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     _ui.update { it.copy(busy = "AI селфи: детализация…") }
                     withContext(Dispatchers.Default) {
                         val b = ImageOps.smartStack(frames)
-                        ImageOps.sharpen(ImageOps.denoise(b, 0.2f), 0.12f)
+                        ImageOps.denoise(b, 0.2f)
                     }
                 }
                 u.mode == CameraMode.PET || u.mode == CameraMode.BABY -> {
@@ -479,6 +535,15 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                     u.mode == CameraMode.LANDSCAPE || u.mode == CameraMode.CAR -> 0.3f
                     else -> 0.18f
                 },
+                // AI Super Detail: сила по сцене
+                detail = when {
+                    u.mode == CameraMode.MACRO || u.mode == CameraMode.FOOD -> 0.55f
+                    live.value.scene == com.maysk.camera.ai.SceneType.DOCUMENT -> 0.7f
+                    u.mode == CameraMode.LANDSCAPE || live.value.scene == com.maysk.camera.ai.SceneType.LANDSCAPE -> 0.5f
+                    u.front || u.mode == CameraMode.PORTRAIT || beauty -> 0.22f
+                    else -> 0.38f
+                },
+                frame = u.frame,
             )
             val out = withContext(Dispatchers.Default) { PhotoPipeline.process(raw, spec) }
             val uri = MediaStoreRepo.saveJpeg(ctx, out, quality, location)
@@ -732,6 +797,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        stabilizer.stop()
         stopVoice()
         controller.shutdown()
         sound.release()

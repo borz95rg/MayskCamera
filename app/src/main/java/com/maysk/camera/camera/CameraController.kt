@@ -385,23 +385,29 @@ class CameraController(private val context: Context) {
             }
         }
 
-        // Стабилизация
+        // Стабилизация: собственная гироскопная (EIS, работает через GL-конвейер) или встроенная в телефон
         if (cfg.mode.recordsVideo) {
             val modes = c2.getCameraCharacteristic(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES)?.toList() ?: emptyList()
-            val stab = if (cfg.mode == CameraMode.VLOG || cfg.mode == CameraMode.CINEMATIC) Stabilization.ULTRA else cfg.stabilization
-            val v = when (stab) {
-                Stabilization.OFF -> CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_OFF
-                Stabilization.STANDARD -> CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_ON
-                Stabilization.ULTRA ->
-                    if (Build.VERSION.SDK_INT >= 33 && modes.contains(CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_PREVIEW_STABILIZATION))
-                        CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_PREVIEW_STABILIZATION
-                    else CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_ON
+            val stab = cfg.stabilization
+            val softwareActive = stab.software && _state.value.effectsActive
+            val previewStab = Build.VERSION.SDK_INT >= 33 && modes.contains(CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_PREVIEW_STABILIZATION)
+            val v = when {
+                stab == Stabilization.OFF -> CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_OFF
+                softwareActive -> CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_OFF   // считаем сами, без двойной компенсации
+                stab == Stabilization.STANDARD -> CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_ON
+                previewStab -> CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_PREVIEW_STABILIZATION
+                else -> CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_ON
             }
             if (modes.contains(v)) b.setCaptureRequestOption(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, v)
         }
         val ois = c2.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION)?.toList() ?: emptyList()
         if (ois.contains(CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON) && cfg.stabilization != Stabilization.OFF)
             b.setCaptureRequestOption(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON)
+
+        // Детализация: аппаратная резкость высокого качества для фото
+        val edges = c2.getCameraCharacteristic(CameraCharacteristics.EDGE_AVAILABLE_EDGE_MODES)?.toList() ?: emptyList()
+        if (!cfg.mode.recordsVideo && edges.contains(CameraMetadata.EDGE_MODE_HIGH_QUALITY))
+            b.setCaptureRequestOption(CaptureRequest.EDGE_MODE, CameraMetadata.EDGE_MODE_HIGH_QUALITY)
 
         // Исправление дисторсии (особенно важно для 0.5x)
         val dist = distortionModes(c2)
@@ -468,6 +474,23 @@ class CameraController(private val context: Context) {
     fun hardwareDistortionCorrection(): Boolean = camera?.let { c ->
         runCatching { distortionModes(Camera2CameraInfo.from(c.cameraInfo)).contains(CameraMetadata.DISTORTION_CORRECTION_MODE_HIGH_QUALITY) }.getOrDefault(false)
     } ?: false
+
+    /**
+     * tan(половины угла обзора) по горизонтали и вертикали вертикального кадра для текущей камеры
+     * (без учёта зума). Нужен гироскопной стабилизации.
+     */
+    fun fovTangents(): Pair<Float, Float> {
+        val cam = camera ?: return 0.45f to 0.6f
+        return runCatching {
+            val c2 = Camera2CameraInfo.from(cam.cameraInfo)
+            val f = c2.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.minOrNull() ?: return 0.45f to 0.6f
+            val size = c2.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE) ?: return 0.45f to 0.6f
+            val orient = c2.getCameraCharacteristic(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+            // сенсор «лежит» горизонтально: в вертикальном кадре ширина = короткая сторона
+            val (wu, hv) = if (orient % 180 == 90) size.height to size.width else size.width to size.height
+            (wu / (2 * f)) to (hv / (2 * f))
+        }.getOrDefault(0.45f to 0.6f)
+    }
 
     fun minFocusDiopters(): Float = camera?.let {
         runCatching { Camera2CameraInfo.from(it.cameraInfo).getCameraCharacteristic(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) }.getOrNull()
