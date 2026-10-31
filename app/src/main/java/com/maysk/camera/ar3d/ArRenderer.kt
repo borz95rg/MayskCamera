@@ -13,12 +13,15 @@ import java.nio.ShortBuffer
  */
 class ArFrame(
     val modelId: String,
-    val model: GlbModel,
+    /** 3D-модель (GLB) или null, если выбран только плоский шаблон. */
+    val model: GlbModel?,
     val pose: FacePose,
     /** 468 точек лица в экранных координатах — «невидимая голова» для перекрытия (может быть пустым). */
     val faceMesh: FloatArray,
     val faceTriangles: ShortArray,
     val viewAspect: Float,
+    /** Плоские накладки на лицо (шаблоны эффектов, макияж). */
+    val sprites: List<Sprite> = emptyList(),
 )
 
 /**
@@ -113,7 +116,8 @@ class ArRenderer {
      */
     fun draw(f: ArFrame, prevToOut: FloatArray, hasDepth: Boolean) {
         if (!init()) return
-        ensureModel(f.modelId, f.model)
+        val model = f.model
+        if (model != null) ensureModel(f.modelId, model) else releaseModel()
         ensureFace(f)
         GLES20.glUseProgram(program)
         GLES20.glUniformMatrix4fv(uPrevToOut, 1, false, prevToOut, 0)
@@ -141,12 +145,13 @@ class ArRenderer {
 
         // 2) Модель
         val m = f.pose.matrix()
+        val parts = if (model != null) gpuParts else emptyList()
         for (k in 0 until 3) { rot[k] = f.pose.right[k]; rot[3 + k] = f.pose.up[k]; rot[6 + k] = f.pose.forward[k] }
         GLES20.glUniformMatrix4fv(uModel, 1, false, m, 0)
         GLES20.glUniformMatrix3fv(uRot, 1, false, rot, 0)
         GLES20.glUniform1f(uBias, 0f)
         GLES20.glUniform1f(uColorOn, 1f)
-        for (gp in gpuParts) {
+        for (gp in parts) {
             if (gp.showWhen == "mouthOpen" && f.pose.mouthOpen < 0.35f) continue
             if (gp.blend) {
                 GLES20.glEnable(GLES20.GL_BLEND)
@@ -164,6 +169,75 @@ class ArRenderer {
         GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0)
         if (aNrm >= 0) GLES20.glDisableVertexAttribArray(aNrm)
         if (aCol >= 0) GLES20.glDisableVertexAttribArray(aCol)
+
+        // 3) Плоские шаблоны в плоскости лица (поверх, без глубины — как 2D-линзы)
+        if (f.sprites.isNotEmpty()) drawSprites(f, prevToOut, m)
+    }
+
+    // ---------- спрайты ----------
+    private var sprProgram = 0
+    private var sPos = -1; private var sUv = -1
+    private var suModel = -1; private var suPrevToOut = -1; private var suAspect = -1; private var suTex = -1; private var suAlpha = -1
+    private val textures = HashMap<String, Int>()
+
+    private fun texture(s: Sprite): Int {
+        textures[s.key]?.let { return it }
+        val t = IntArray(1); GLES20.glGenTextures(1, t, 0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t[0])
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        android.opengl.GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, s.bitmap, 0)   // премультиплицированная альфа
+        textures[s.key] = t[0]
+        return t[0]
+    }
+
+    private fun drawSprites(f: ArFrame, prevToOut: FloatArray, model: FloatArray) {
+        if (sprProgram == 0) {
+            sprProgram = runCatching { link(SVS, SFS) }.getOrElse { Log.e("MayskAR", "sprite shader", it); return }
+            sPos = GLES20.glGetAttribLocation(sprProgram, "aPos"); sUv = GLES20.glGetAttribLocation(sprProgram, "aUv")
+            suModel = GLES20.glGetUniformLocation(sprProgram, "uModel"); suPrevToOut = GLES20.glGetUniformLocation(sprProgram, "uPrevToOut")
+            suAspect = GLES20.glGetUniformLocation(sprProgram, "uAspect"); suTex = GLES20.glGetUniformLocation(sprProgram, "uTex")
+            suAlpha = GLES20.glGetUniformLocation(sprProgram, "uAlpha")
+        }
+        // лишние текстуры (сменили шаблон) — освобождаем
+        val keys = f.sprites.map { it.key }.toSet()
+        textures.keys.filter { it !in keys }.forEach { k -> GLES20.glDeleteTextures(1, intArrayOf(textures.remove(k)!!), 0) }
+        GLES20.glUseProgram(sprProgram)
+        GLES20.glUniformMatrix4fv(suModel, 1, false, model, 0)
+        GLES20.glUniformMatrix4fv(suPrevToOut, 1, false, prevToOut, 0)
+        GLES20.glUniform1f(suAspect, f.viewAspect)
+        GLES20.glEnable(GLES20.GL_BLEND)
+        GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE7)
+        GLES20.glUniform1i(suTex, 7)
+        for (s in f.sprites) {
+            if (s.alpha <= 0.01f) continue
+            val hw = s.width / 2; val h = s.width * s.aspect
+            val cy = if (s.bottomAligned) s.at[1] + h / 2 else s.at[1]
+            val x = s.at[0]; val z = s.at.getOrElse(2) { 0f }
+            // 4 вершины: позиция в лицевых единицах (xyz) + текстурные координаты (uv)
+            val v = floatArrayOf(
+                x - hw, cy + h / 2, z, 0f, 0f,
+                x + hw, cy + h / 2, z, 1f, 0f,
+                x - hw, cy - h / 2, z, 0f, 1f,
+                x + hw, cy - h / 2, z, 1f, 1f,
+            )
+            val buf = ByteBuffer.allocateDirect(v.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(v); position(0) }
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture(s))
+            GLES20.glUniform1f(suAlpha, s.alpha)
+            buf.position(0)
+            GLES20.glEnableVertexAttribArray(sPos)
+            GLES20.glVertexAttribPointer(sPos, 3, GLES20.GL_FLOAT, false, 20, buf)
+            buf.position(3)
+            GLES20.glEnableVertexAttribArray(sUv)
+            GLES20.glVertexAttribPointer(sUv, 2, GLES20.GL_FLOAT, false, 20, buf)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        }
+        GLES20.glDisableVertexAttribArray(sPos); GLES20.glDisableVertexAttribArray(sUv)
+        GLES20.glDisable(GLES20.GL_BLEND)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
     }
 
     private fun bindAndDraw(vbo: Int, ibo: Int, count: Int) {
@@ -184,6 +258,8 @@ class ArRenderer {
     /** Освобождение всех ресурсов (вызывать в GL-потоке при остановке камеры). */
     fun release() {
         releaseModel()
+        textures.values.forEach { GLES20.glDeleteTextures(1, intArrayOf(it), 0) }; textures.clear()
+        if (sprProgram != 0) { GLES20.glDeleteProgram(sprProgram); sprProgram = 0 }
         if (faceVbo != 0) { GLES20.glDeleteBuffers(2, intArrayOf(faceVbo, faceIbo), 0); faceVbo = 0; faceIbo = 0; faceCount = 0 }
         if (program != 0) { GLES20.glDeleteProgram(program); program = 0 }
     }
@@ -234,6 +310,31 @@ void main() {
     vCol = aCol;
 }
 """
+        /** Спрайт в плоскости лица: та же цепочка координат, что у 3D-модели. */
+        const val SVS = """
+attribute vec3 aPos;
+attribute vec2 aUv;
+uniform mat4 uModel;
+uniform mat4 uPrevToOut;
+uniform float uAspect;
+varying vec2 vUv;
+void main() {
+    vec4 s = uModel * vec4(aPos, 1.0);
+    vec4 uv = uPrevToOut * vec4(s.x / uAspect, 1.0 - s.y, 0.0, 1.0);
+    gl_Position = vec4(uv.x * 2.0 - 1.0, uv.y * 2.0 - 1.0, 0.0, 1.0);
+    vUv = aUv;
+}
+"""
+        const val SFS = """
+precision mediump float;
+varying vec2 vUv;
+uniform sampler2D uTex;
+uniform float uAlpha;
+void main() {
+    gl_FragColor = texture2D(uTex, vUv) * uAlpha;
+}
+"""
+
         /** Освещение: мягкий свет со стороны камеры сверху-слева + блик; двусторонние грани. */
         const val FS = """
 precision mediump float;

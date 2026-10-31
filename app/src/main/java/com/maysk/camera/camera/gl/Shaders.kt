@@ -6,10 +6,13 @@ attribute vec4 aPosition;
 attribute vec4 aTexCoord;
 uniform mat4 uTexMatrix;
 uniform mat4 uOvMatrix;
+uniform mat4 uBgMat;
 varying vec2 vTex;
 varying vec2 vPos;
 varying vec2 vOv;
+varying vec4 vBg;
 void main() {
+    vBg = uBgMat * aTexCoord;
     gl_Position = aPosition;
     vTex = (uTexMatrix * aTexCoord).xy;
     vOv = (uOvMatrix * aTexCoord).xy;
@@ -43,6 +46,10 @@ uniform sampler2D uLut;
 uniform sampler2D uOv;
 uniform float uOvOn;
 varying vec2 vOv;
+uniform float uBgOn;
+uniform sampler2D uBgMask;
+uniform sampler2D uBgTex;
+varying vec4 vBg;
 uniform float uLutMix;
 uniform float uGrain;
 uniform float uLeak;
@@ -132,6 +139,24 @@ void main() {
         vec3 lg = log(1.0 + clamp(c, 0.0, 1.0) * 12.0) / log(13.0);
         lg = mix(vec3(luma(lg)), lg, 0.8) * 0.82 + 0.08;
         c = mix(c, lg, uLog);
+    }
+
+    // 4b. Живая замена фона: маска человека ML Kit (xy — фон в координатах экрана, zw — маска в кадре анализа)
+    if (uBgOn > 0.5) {
+        float pm = smoothstep(0.3, 0.7, texture2D(uBgMask, vBg.zw).r);
+        vec3 bgc;
+        if (uBgOn > 1.5) {
+            bgc = vec3(0.0);
+            for (int i = 0; i < 8; i++) {
+                float a = float(i) * 0.785398;
+                bgc += texture2D(uTex, vTex + vec2(cos(a), sin(a)) * uTexel * 16.0).rgb;
+                bgc += texture2D(uTex, vTex + vec2(cos(a + 0.39), sin(a + 0.39)) * uTexel * 30.0).rgb;
+            }
+            bgc /= 16.0;
+        } else {
+            bgc = texture2D(uBgTex, vBg.xy).rgb;
+        }
+        c = mix(bgc, c, pm);
     }
 
     // 5. Фильтр

@@ -1,0 +1,520 @@
+{
+ "faces": [
+  {
+   "id": "cat",
+   "title": "Котик",
+   "category": "Животные",
+   "thumb": "effects/thumbs/cat.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/cat_0.png",
+     "at": [
+      0,
+      1.12,
+      -0.25
+     ],
+     "w": 1.6724,
+     "align": "bottom",
+     "aspect": 0.52134
+    },
+    {
+     "png": "effects/face/cat_1.png",
+     "at": [
+      0,
+      -0.62,
+      0.42
+     ],
+     "w": 2.0599,
+     "align": "center",
+     "aspect": 0.20667
+    }
+   ]
+  },
+  {
+   "id": "puppy",
+   "title": "Щенок",
+   "category": "Животные",
+   "thumb": "effects/thumbs/puppy.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/puppy_0.png",
+     "at": [
+      0,
+      1.05,
+      -0.3
+     ],
+     "w": 1.8582,
+     "align": "bottom",
+     "aspect": 0.39927
+    },
+    {
+     "png": "effects/face/puppy_1.png",
+     "at": [
+      0,
+      -0.62,
+      0.45
+     ],
+     "w": 0.6973,
+     "align": "center",
+     "aspect": 0.82558
+    }
+   ]
+  },
+  {
+   "id": "bunny",
+   "title": "Зайка",
+   "category": "Животные",
+   "thumb": "effects/thumbs/bunny.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/bunny_0.png",
+     "at": [
+      0,
+      1.12,
+      -0.3
+     ],
+     "w": 1.3067,
+     "align": "bottom",
+     "aspect": 0.82993
+    },
+    {
+     "png": "effects/face/bunny_1.png",
+     "at": [
+      0,
+      -0.57,
+      0.47
+     ],
+     "w": 0.26,
+     "align": "center",
+     "aspect": 0.91667
+    }
+   ]
+  },
+  {
+   "id": "fox",
+   "title": "Лисёнок",
+   "category": "Животные",
+   "thumb": "effects/thumbs/fox.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/fox_0.png",
+     "at": [
+      0,
+      1.12,
+      -0.25
+     ],
+     "w": 1.7227,
+     "align": "bottom",
+     "aspect": 0.52522
+    },
+    {
+     "png": "effects/face/fox_1.png",
+     "at": [
+      0,
+      -0.66,
+      0.45
+     ],
+     "w": 0.7327,
+     "align": "center",
+     "aspect": 0.79487
+    }
+   ]
+  },
+  {
+   "id": "panda",
+   "title": "Панда",
+   "category": "Животные",
+   "thumb": "effects/thumbs/panda.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/panda_0.png",
+     "at": [
+      0,
+      -0.05,
+      0.25
+     ],
+     "w": 2.4127,
+     "align": "center",
+     "aspect": 1.00281
+    }
+   ]
+  },
+  {
+   "id": "crown",
+   "title": "Корона",
+   "category": "3D-эффекты",
+   "thumb": "effects/thumbs/crown.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/crown_0.png",
+     "at": [
+      0,
+      1.02,
+      -0.3
+     ],
+     "w": 1.6394,
+     "align": "bottom",
+     "aspect": 0.63864
+    }
+   ]
+  },
+  {
+   "id": "devil",
+   "title": "Рожки",
+   "category": "3D-эффекты",
+   "thumb": "effects/thumbs/devil.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/devil_0.png",
+     "at": [
+      0,
+      1.0,
+      -0.2
+     ],
+     "w": 1.5486,
+     "align": "bottom",
+     "aspect": 0.4244
+    }
+   ]
+  },
+  {
+   "id": "glasses",
+   "title": "Неоновые очки",
+   "category": "3D-эффекты",
+   "thumb": "effects/thumbs/glasses.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/glasses_0.png",
+     "at": [
+      0,
+      -0.02,
+      0.3
+     ],
+     "w": 1.5339,
+     "align": "center",
+     "aspect": 0.32346
+    }
+   ]
+  },
+  {
+   "id": "halo",
+   "title": "Нимб",
+   "category": "3D-эффекты",
+   "thumb": "effects/thumbs/halo.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/halo_0.png",
+     "at": [
+      0,
+      1.6,
+      -0.35
+     ],
+     "w": 1.4569,
+     "align": "center",
+     "aspect": 0.31346
+    }
+   ]
+  },
+  {
+   "id": "flower",
+   "title": "Венок",
+   "category": "3D-эффекты",
+   "thumb": "effects/thumbs/flower.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/flower_0.png",
+     "at": [
+      0,
+      0.98,
+      -0.2
+     ],
+     "w": 1.7046,
+     "align": "bottom",
+     "aspect": 0.44501
+    }
+   ]
+  },
+  {
+   "id": "fire",
+   "title": "Огненная корона",
+   "category": "3D-эффекты",
+   "thumb": "effects/thumbs/fire.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/fire_0.png",
+     "at": [
+      0,
+      1.0,
+      -0.25
+     ],
+     "w": 1.6068,
+     "align": "bottom",
+     "aspect": 0.55125
+    }
+   ]
+  },
+  {
+   "id": "ice",
+   "title": "Ледяной кристалл",
+   "category": "3D-эффекты",
+   "thumb": "effects/thumbs/ice.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/ice_0.png",
+     "at": [
+      0,
+      0.72,
+      0.25
+     ],
+     "w": 0.5382,
+     "align": "center",
+     "aspect": 1.1568
+    }
+   ]
+  },
+  {
+   "id": "visor",
+   "title": "Кибер-визор",
+   "category": "3D-эффекты",
+   "thumb": "effects/thumbs/visor.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/visor_0.png",
+     "at": [
+      0,
+      0.0,
+      0.32
+     ],
+     "w": 1.858,
+     "align": "center",
+     "aspect": 0.45278
+    }
+   ]
+  },
+  {
+   "id": "hearts",
+   "title": "Сердечки",
+   "category": "Украшения",
+   "thumb": "effects/thumbs/hearts.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/hearts_0.png",
+     "at": [
+      0.95,
+      0.85,
+      0.0
+     ],
+     "w": 0.9135,
+     "align": "center",
+     "aspect": 0.91606
+    }
+   ]
+  },
+  {
+   "id": "butterfly",
+   "title": "Бабочка",
+   "category": "Украшения",
+   "thumb": "effects/thumbs/butterfly.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/butterfly_0.png",
+     "at": [
+      0.55,
+      1.05,
+      -0.1
+     ],
+     "w": 0.8627,
+     "align": "center",
+     "aspect": 0.70455
+    }
+   ]
+  },
+  {
+   "id": "sparkles",
+   "title": "Блёстки",
+   "category": "Украшения",
+   "thumb": "effects/thumbs/sparkles.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/sparkles_0.png",
+     "at": [
+      0,
+      0.95,
+      -0.1
+     ],
+     "w": 2.2276,
+     "align": "center",
+     "aspect": 0.64916
+    }
+   ]
+  },
+  {
+   "id": "freckles",
+   "title": "Веснушки",
+   "category": "Макияж",
+   "thumb": "effects/thumbs/freckles.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/freckles_0.png",
+     "at": [
+      0,
+      -0.3,
+      0.36
+     ],
+     "w": 0.8829,
+     "align": "center",
+     "aspect": 0.33495
+    }
+   ]
+  },
+  {
+   "id": "blush",
+   "title": "Румянец",
+   "category": "Макияж",
+   "thumb": "effects/thumbs/blush.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/blush_0.png",
+     "at": [
+      0,
+      -0.4,
+      0.3
+     ],
+     "w": 1.3969,
+     "align": "center",
+     "aspect": 0.27746
+    }
+   ]
+  },
+  {
+   "id": "liner",
+   "title": "Стрелки",
+   "category": "Макияж",
+   "thumb": "effects/thumbs/liner.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/liner_0.png",
+     "at": [
+      0,
+      0.04,
+      0.26
+     ],
+     "w": 1.1632,
+     "align": "center",
+     "aspect": 0.16692
+    }
+   ]
+  },
+  {
+   "id": "lipgloss",
+   "title": "Блеск для губ",
+   "category": "Макияж",
+   "thumb": "effects/thumbs/lipgloss.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/lipgloss_0.png",
+     "at": [
+      0,
+      -0.95,
+      0.4
+     ],
+     "w": 0.6335,
+     "align": "center",
+     "aspect": 0.5597
+    }
+   ]
+  },
+  {
+   "id": "hearts_cheeks",
+   "title": "Сердечки на щеках",
+   "category": "Макияж",
+   "thumb": "effects/thumbs/hearts_cheeks.jpg",
+   "pieces": [
+    {
+     "png": "effects/face/hearts_cheeks_0.png",
+     "at": [
+      0,
+      -0.4,
+      0.32
+     ],
+     "w": 1.3051,
+     "align": "center",
+     "aspect": 0.31879
+    }
+   ]
+  }
+ ],
+ "frames": [
+  {
+   "id": "film",
+   "title": "Плёнка",
+   "png": "effects/frames/film.png",
+   "thumb": "effects/thumbs/frame_film.jpg",
+   "mode": "stretch"
+  },
+  {
+   "id": "flowers",
+   "title": "Цветочная рамка",
+   "png": "effects/frames/flowers.png",
+   "thumb": "effects/thumbs/frame_flowers.jpg",
+   "mode": "stretch"
+  },
+  {
+   "id": "location",
+   "title": "Геометка",
+   "png": "effects/frames/location.png",
+   "thumb": "effects/thumbs/frame_location.jpg",
+   "mode": "corner"
+  }
+ ],
+ "backgrounds": [
+  {
+   "id": "bokeh",
+   "title": "Размытый свет",
+   "jpg": "effects/backgrounds/bokeh.jpg",
+   "thumb": "effects/thumbs/bg_bokeh.jpg"
+  },
+  {
+   "id": "neon_city",
+   "title": "Неоновый город",
+   "jpg": "effects/backgrounds/neon_city.jpg",
+   "thumb": "effects/thumbs/bg_neon_city.jpg"
+  },
+  {
+   "id": "sunset",
+   "title": "Закат",
+   "jpg": "effects/backgrounds/sunset.jpg",
+   "thumb": "effects/thumbs/bg_sunset.jpg"
+  },
+  {
+   "id": "forest",
+   "title": "Лес",
+   "jpg": "effects/backgrounds/forest.jpg",
+   "thumb": "effects/thumbs/bg_forest.jpg"
+  },
+  {
+   "id": "beach",
+   "title": "Пляж",
+   "jpg": "effects/backgrounds/beach.jpg",
+   "thumb": "effects/thumbs/bg_beach.jpg"
+  },
+  {
+   "id": "pink_hearts",
+   "title": "Розовые сердечки",
+   "jpg": "effects/backgrounds/pink_hearts.jpg",
+   "thumb": "effects/thumbs/bg_pink_hearts.jpg"
+  },
+  {
+   "id": "snow",
+   "title": "Зима",
+   "jpg": "effects/backgrounds/snow.jpg",
+   "thumb": "effects/thumbs/bg_snow.jpg"
+  },
+  {
+   "id": "galaxy",
+   "title": "Галактика",
+   "jpg": "effects/backgrounds/galaxy.jpg",
+   "thumb": "effects/thumbs/bg_galaxy.jpg"
+  }
+ ]
+}

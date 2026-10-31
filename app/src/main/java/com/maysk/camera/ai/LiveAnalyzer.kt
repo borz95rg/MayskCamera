@@ -34,7 +34,12 @@ class LiveAnalyzer(
     private val realtimeFaces: () -> Boolean = { false },
     /** Маленький живой кадр (раз в ~2 с) — для миниатюр фильтров «на живом кадре». */
     private val onThumb: ((Bitmap) -> Unit)? = null,
+    /** Живая замена фона: нужна маска человека. */
+    private val wantSegmentation: () -> Boolean = { false },
+    /** Маска человека 0..255 в координатах вертикального кадра анализа (ширина, высота). */
+    private val onPersonMask: ((ByteArray, Int, Int) -> Unit)? = null,
 ) : ImageAnalysis.Analyzer {
+    private var lastSeg = 0L
     private var lastThumb = 0L
 
     private var lastFaces = 0L
@@ -58,6 +63,11 @@ class LiveAnalyzer(
                     val small = ImageOps.limitSize(bmp, 200)
                     onThumb?.invoke(if (rotation != 0) ImageOps.rotate(small, rotation) else small)
                 }
+            }
+            // маска человека для живой замены фона (~12 раз в секунду)
+            if (onPersonMask != null && wantSegmentation() && now - lastSeg >= 80) {
+                lastSeg = now
+                runBlocking { Vision.personMaskStream(bmp, rotation) }?.let { (m, w, h) -> onPersonMask?.invoke(m, w, h) }
             }
             val diff = if (prevMean < 0) 0f else abs(st.mean - prevMean)
             prevMean = st.mean

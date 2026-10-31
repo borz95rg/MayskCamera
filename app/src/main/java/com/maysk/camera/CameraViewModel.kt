@@ -110,6 +110,16 @@ data class CameraUi(
     val ar3d: String? = null,
     /** Лицо для 3D-маски сейчас найдено. */
     val ar3dTracking: Boolean = false,
+    /** Плоский шаблон на лицо из пакета шаблонов (id) или null. */
+    val faceTpl: String? = null,
+    /** Живая замена фона: "blur" или id фона из шаблонов; null — выключено. */
+    val bgId: String? = null,
+    /** Интенсивность эффекта на лице (прозрачность шаблона). */
+    val effectAlpha: Float = 1f,
+    /** Face Beauty в студии эффектов: тон кожи, румянец, губы (0..1, живые — в превью, фото и видео). */
+    val beautyTone: Float = 0f,
+    val blush: Float = 0f,
+    val lips: Float = 0f,
     val snapMode: Boolean = false,
     val snapSeconds: Int = 10,
     val snapCaption: String = "",
@@ -175,10 +185,13 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             cam.collect { c -> val (tu, tv) = fov; stabilizer.tanHalfFovU = tu / c.zoom.coerceAtLeast(0.3f); stabilizer.tanHalfFovV = tv / c.zoom.coerceAtLeast(0.3f) }
         }
+        com.maysk.camera.camera.Frames.imageLoader = { path -> com.maysk.camera.ar3d.EffectTemplates.bitmap(ctx, path) }
         controller.analyzer = LiveAnalyzer(
             enabled = { settings.value.smartAi || _ui.value.aiPro || needsFaces() },
             onResult = { scene -> live.value = scene; updateAr3d(scene); viewModelScope.launch { onLiveScene(scene) } },
-            realtimeFaces = { _ui.value.arMask != com.maysk.camera.camera.ArMask.NONE || _ui.value.ar3d != null },
+            realtimeFaces = { _ui.value.arMask != com.maysk.camera.camera.ArMask.NONE || arActive() },
+            wantSegmentation = { _ui.value.bgId != null },
+            onPersonMask = { m, w, h -> onPersonMask(m, w, h) },
             onThumb = { b -> liveThumb.value = b }
         )
     }
@@ -186,7 +199,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     /** Живой кадр для миниатюр фильтров (обновляется раз в ~2 с). */
     val liveThumb = kotlinx.coroutines.flow.MutableStateFlow<Bitmap?>(null)
 
-    private fun needsFaces() = _ui.value.arMask != com.maysk.camera.camera.ArMask.NONE || _ui.value.ar3d != null || _ui.value.mode in setOf(CameraMode.PORTRAIT, CameraMode.INTERVIEW, CameraMode.CINEMATIC, CameraMode.VLOG, CameraMode.AI_AUTO)
+    private fun needsFaces() = _ui.value.arMask != com.maysk.camera.camera.ArMask.NONE || arActive() || _ui.value.mode in setOf(CameraMode.PORTRAIT, CameraMode.INTERVIEW, CameraMode.CINEMATIC, CameraMode.VLOG, CameraMode.AI_AUTO)
 
     // region привязка камеры
     fun attach(owner: LifecycleOwner, pv: PreviewView) {
@@ -385,7 +398,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setAr3d(id: String?) {
         if (id == null) {
             _ui.update { it.copy(ar3d = null, ar3dTracking = false) }
-            ar3dModel = null; controller.processor.arFrame = null; faceTracker.reset(); lastMesh = null
+            ar3dModel = null; refreshAr()
             return
         }
         viewModelScope.launch {
@@ -393,17 +406,106 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 runCatching { com.maysk.camera.ar3d.ArCatalog.load(ctx, id) }.onFailure { android.util.Log.e("MayskAR", "load $id", it) }.getOrNull()
             }
             if (model == null) { toast("Не удалось загрузить 3D-маску"); return@launch }
-            ar3dModel = model; faceTracker.reset(); lastMesh = null
-            _ui.update { it.copy(ar3d = id, arMask = com.maysk.camera.camera.ArMask.NONE) }
+            ar3dModel = model; faceTracker.reset(); lastMesh = null; tplSprites = emptyList()
+            _ui.update { it.copy(ar3d = id, faceTpl = null, arMask = com.maysk.camera.camera.ArMask.NONE) }
             if (!cam.value.effectsActive) toast("3D-маски работают только при живом GL-эффекте — на этой камере он не запустился")
         }
     }
 
+    /** На лице что-то рисуется: 3D-маска, шаблон или живой макияж. */
+    fun arActive(): Boolean { val u = _ui.value; return u.ar3d != null || u.faceTpl != null || u.blush > 0.01f || u.lips > 0.01f }
+
+    @Volatile private var tplSprites: List<com.maysk.camera.ar3d.Sprite> = emptyList()
+    @Volatile private var beautySprites: List<com.maysk.camera.ar3d.Sprite> = emptyList()
+
+    /** Плоский шаблон на лицо (ушки, короны, очки, макияж) из пакета шаблонов. */
+    fun setFaceTemplate(id: String?) {
+        if (id == null) { tplSprites = emptyList(); _ui.update { it.copy(faceTpl = null) }; refreshAr(); return }
+        viewModelScope.launch {
+            val face = com.maysk.camera.ar3d.EffectTemplates.pack(ctx).faces.firstOrNull { it.id == id } ?: return@launch
+            val sp = withContext(Dispatchers.IO) { com.maysk.camera.ar3d.EffectTemplates.sprites(ctx, face, _ui.value.effectAlpha) }
+            tplSprites = sp
+            // один «слот лица»: шаблон заменяет 3D-маску
+            ar3dModel = null
+            _ui.update { it.copy(faceTpl = id, ar3d = null, arMask = com.maysk.camera.camera.ArMask.NONE) }
+            refreshAr()
+        }
+    }
+
+    fun setEffectAlpha(a: Float) {
+        _ui.update { it.copy(effectAlpha = a) }
+        tplSprites = tplSprites.map { com.maysk.camera.ar3d.Sprite(it.key, it.bitmap, it.at, it.width, it.aspect, it.bottomAligned, a) }
+        if (_ui.value.filterId != "original") setFilterIntensity(a)
+    }
+
+    /** Живой макияж: румянец и губы — те же шаблоны, прозрачность = значение ползунка. */
+    fun setFaceBeauty(tone: Float? = null, blush: Float? = null, lips: Float? = null) {
+        _ui.update { it.copy(beautyTone = tone ?: it.beautyTone, blush = blush ?: it.blush, lips = lips ?: it.lips) }
+        val u = _ui.value
+        viewModelScope.launch {
+            val pack = com.maysk.camera.ar3d.EffectTemplates.pack(ctx)
+            val list = withContext(Dispatchers.IO) {
+                buildList {
+                    if (u.blush > 0.01f) pack.faces.firstOrNull { it.id == "blush" }?.let { addAll(com.maysk.camera.ar3d.EffectTemplates.sprites(ctx, it, u.blush)) }
+                    if (u.lips > 0.01f) pack.faces.firstOrNull { it.id == "lipgloss" }?.let { addAll(com.maysk.camera.ar3d.EffectTemplates.sprites(ctx, it, u.lips)) }
+                }
+            }
+            beautySprites = list
+            refreshAr()
+        }
+        updateEffect()
+    }
+
+    private fun refreshAr() {
+        if (!arActive()) { controller.processor.arFrame = null; faceTracker.reset(); lastMesh = null }
+        if (arActive() && !cam.value.effectsActive) toast("Эффекты на лице работают только при живом GL-эффекте — на этой камере он не запустился")
+    }
+
+    /** Сброс всего, что выбрано в студии эффектов. */
+    fun resetStudio() {
+        setAr3d(null); setFaceTemplate(null); setBackground(null); setFrame(null); setEffect(Effect.NONE); setFilter("original")
+        _ui.update { it.copy(effectAlpha = 1f) }
+        setFaceBeauty(0f, 0f, 0f)
+    }
+
+    // ---------- живая замена фона ----------
+    private var bgImage: Bitmap? = null
+    private var bgVersion = 0L
+
+    fun setBackground(id: String?) {
+        if (id == null) { _ui.update { it.copy(bgId = null) }; bgImage = null; controller.processor.background = null; return }
+        viewModelScope.launch {
+            bgImage = if (id == "blur") null else withContext(Dispatchers.IO) {
+                val b = com.maysk.camera.ar3d.EffectTemplates.pack(ctx).backgrounds.firstOrNull { it.id == id }
+                    ?.let { com.maysk.camera.ar3d.EffectTemplates.bitmap(ctx, it.jpg) } ?: return@withContext null
+                // обрезка по пропорциям экрана (cover)
+                val pv = previewView
+                val aspect = if (pv != null && pv.height > 0) pv.width.toFloat() / pv.height else 9f / 19.5f
+                val bw = b.width; val bh = b.height
+                val cw = minOf(bw, (bh * aspect).toInt()); val ch = minOf(bh, (bw / aspect).toInt())
+                Bitmap.createBitmap(b, (bw - cw) / 2, (bh - ch) / 2, cw, ch)
+            }
+            if (id != "blur" && bgImage == null) { toast("Фон не загрузился"); return@launch }
+            _ui.update { it.copy(bgId = id) }
+            if (!cam.value.effectsActive) toast("Замена фона работает только при живом GL-эффекте")
+            else toast("Замена фона: отойдите так, чтобы были видны плечи — так маска точнее")
+        }
+    }
+
+    private fun onPersonMask(m: ByteArray, w: Int, h: Int) {
+        val u = _ui.value
+        if (u.bgId == null) { controller.processor.background = null; return }
+        val pv = previewView
+        val aspect = if (pv != null && pv.height > 0) pv.width.toFloat() / pv.height else 9f / 19.5f
+        controller.processor.background = com.maysk.camera.camera.gl.GlEffectProcessor.Background(m, w, h, bgImage, aspect, u.front, ++bgVersion)
+    }
+
     /** Вызывается из потока анализа: обновляет позу головы и отдаёт сцену GL-процессору. */
     private fun updateAr3d(scene: com.maysk.camera.ai.LiveScene) {
-        val id = _ui.value.ar3d
+        val id = _ui.value.ar3d ?: _ui.value.faceTpl ?: "beauty"
         val model = ar3dModel
-        if (id == null || model == null) { controller.processor.arFrame = null; return }
+        val sprites = tplSprites + beautySprites
+        if (!arActive() || (model == null && sprites.isEmpty())) { controller.processor.arFrame = null; return }
         val pv = previewView
         val aspect = if (pv != null && pv.height > 0) pv.width.toFloat() / pv.height else 9f / 19.5f
         val map = com.maysk.camera.ar3d.ViewMapping(aspect, mirror = _ui.value.front)
@@ -431,7 +533,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         // «невидимую голову» переносим из позы сетки в текущую сглаженную позу
         val mp = lastMeshPose
         val occ = if (mp != null && lastMeshView.isNotEmpty()) movedMesh(lastMeshView, mp, pose) else FloatArray(0)
-        controller.processor.arFrame = com.maysk.camera.ar3d.ArFrame(id, model, pose, occ, if (occ.isEmpty()) ShortArray(0) else faceTris, aspect)
+        controller.processor.arFrame = com.maysk.camera.ar3d.ArFrame(id, model, pose, occ, if (occ.isEmpty()) ShortArray(0) else faceTris, aspect, sprites)
     }
 
     private fun movedMesh(src: FloatArray, from: com.maysk.camera.ar3d.FacePose, to: com.maysk.camera.ar3d.FacePose): FloatArray {
@@ -452,7 +554,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun takeArPhoto() {
         _ui.update { it.copy(busy = "Снимок с 3D-маской…") }
         playShutter()
-        val hadMask = controller.processor.arFrame != null
+        val hadMask = controller.processor.arFrame != null || !arActive()
         val bmp = kotlinx.coroutines.withTimeoutOrNull(2000) {
             kotlinx.coroutines.suspendCancellableCoroutine<Bitmap?> { cont ->
                 controller.processor.requestSnapshot { b -> if (cont.isActive) cont.resumeWith(Result.success(b)) }
@@ -462,7 +564,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         val uri = withContext(Dispatchers.IO) { MediaStoreRepo.saveJpeg(ctx, bmp, 95, name = MediaStoreRepo.newName("AR")) }
         _ui.update {
             it.copy(busy = null, lastUri = uri ?: it.lastUri, lastIsVideo = false,
-                message = if (uri == null) "Фото не сохранено" else if (hadMask) "Фото с 3D-маской сохранено" else "Лицо не найдено — снимок без маски")
+                message = if (uri == null) "Фото не сохранено" else if (hadMask) "Фото с эффектами сохранено" else "Лицо не найдено — снимок без маски")
         }
     }
     // endregion
@@ -610,7 +712,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             grain = f.grain * u.filterIntensity,
             leak = f.leak * u.filterIntensity,
             // рецепт режима поверх фильтра человека (а не вместо него)
-            skinTone = maxOf(f.skinTone * u.filterIntensity, modeSkinTone(u.mode)),
+            skinTone = maxOf(f.skinTone * u.filterIntensity, modeSkinTone(u.mode), u.beautyTone),
             warmSat = maxOf(f.warmSat * u.filterIntensity, modeWarmSat(u.mode)),
             focus = portraitFocus(u, l),
             frame = u.frame?.takeIf { !it.style.photoOnly } ?: modeFrame(u.mode),
@@ -712,7 +814,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun takePhoto() {
-        if (_ui.value.ar3d != null && cam.value.effectsActive) { takeArPhoto(); return }
+        // эффекты на лице или замена фона — снимок из того же GL-кадра, что видно в превью
+        if ((arActive() || _ui.value.bgId != null) && cam.value.effectsActive) { takeArPhoto(); return }
         val u = _ui.value
         val s = settings.value
         val c = cam.value

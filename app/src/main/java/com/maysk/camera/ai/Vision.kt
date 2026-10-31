@@ -163,6 +163,40 @@ object Vision {
         runCatching { labeler.process(InputImage.fromBitmap(bitmap, rotation)).await() }
             .getOrDefault(emptyList()).map { it.text to it.confidence }
 
+    private val streamSegmenter by lazy {
+        Segmentation.getClient(SelfieSegmenterOptions.Builder().setDetectorMode(SelfieSegmenterOptions.STREAM_MODE).build())
+    }
+
+    /**
+     * Маска человека для видеопотока: байты 0..255, вертикальный кадр (как точки лица),
+     * уменьшена до ~240 px по ширине. Если ML Kit вернул маску в ориентации буфера — поворачиваем.
+     */
+    suspend fun personMaskStream(bitmap: Bitmap, rotation: Int): Triple<ByteArray, Int, Int>? = runCatching {
+        val m = streamSegmenter.process(InputImage.fromBitmap(bitmap, rotation)).await()
+        val mw = m.width; val mh = m.height
+        val buf = m.buffer.order(ByteOrder.nativeOrder()); buf.rewind()
+        val fb = buf.asFloatBuffer()
+        val uprightW = if (rotation % 180 == 0) bitmap.width else bitmap.height
+        val uprightH = if (rotation % 180 == 0) bitmap.height else bitmap.width
+        // маска уже вертикальная, если её стороны совпадают с вертикальным кадром
+        val needRotate = rotation % 180 != 0 && !(mw * uprightH == mh * uprightW)
+        val ow = if (needRotate) mh else mw; val oh = if (needRotate) mw else mh
+        val step = maxOf(1, ow / 240)
+        val tw = ow / step; val th = oh / step
+        val out = ByteArray(tw * th)
+        for (y in 0 until th) for (x in 0 until tw) {
+            val ux = x * step; val uy = y * step
+            val (sx, sy) = if (!needRotate) ux to uy else when (rotation) {
+                90 -> uy to (mh - 1 - ux)
+                270 -> (mw - 1 - uy) to ux
+                else -> ux to uy
+            }
+            val v = fb.get(sy.coerceIn(0, mh - 1) * mw + sx.coerceIn(0, mw - 1))
+            out[y * tw + x] = (v.coerceIn(0f, 1f) * 255f).toInt().toByte()
+        }
+        Triple(out, tw, th)
+    }.getOrNull()
+
     /** Маска человека (вероятность 0..1). */
     suspend fun personMask(bitmap: Bitmap): Triple<FloatArray, Int, Int>? = runCatching {
         val m = segmenter.process(InputImage.fromBitmap(bitmap, 0)).await()

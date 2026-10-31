@@ -148,6 +148,11 @@ object Filters {
             tone = T(0.5f, g = 1.15f, lift = 0.06f, sh = c(0f, 0.03f, 0.05f), hi = c(0.03f, 0.02f, -0.02f))),
         Filter("retro_pop", "Ретро-поп", FilterCategory.SOCIAL, cm { sat(1.4f) }, grain = 0.2f,
             tone = T(0.5f, lift = 0.05f, sh = c(0.03f, 0f, 0.07f), hi = c(0.07f, 0.04f, -0.06f))),
+        // ---------- Из пакета шаблонов (effects.json): «Лето» и «Винтаж» ----------
+        Filter("summer", "Лето", FilterCategory.NATURE, cm { sat(1.18f); scale(1.04f, 1.01f, 0.95f) }, leak = 0.18f,
+            tone = T(0.25f, g = 0.92f, sh = c(0f, 0.02f, 0.05f), hi = c(0.05f, 0.03f, -0.04f))),
+        Filter("vintage", "Винтаж", FilterCategory.VINTAGE, cm { sat(0.78f); scale(1.06f, 1f, 0.9f) }, vignette = 0.35f, grain = 0.25f,
+            tone = T(0.15f, lift = 0.08f, crush = 0.05f, sh = c(0.03f, 0.02f, -0.02f), hi = c(0.06f, 0.03f, -0.07f))),
         // ---------- Новые повседневные рецепты ----------
         Filter("soft_morning", "Утро", FilterCategory.PORTRAIT, cm { sat(0.92f); scale(1.03f, 1.01f, 0.98f) },
             tone = T(-0.25f, g = 0.92f, lift = 0.045f, hi = c(0.04f, 0.025f, 0.01f))),

@@ -196,7 +196,7 @@ class GlEffectProcessor : SurfaceProcessor {
             aTexCoord = GLES20.glGetAttribLocation(program, "aTexCoord")
             listOf(
                 "uTexMatrix", "uTex", "uTexel", "uColor", "uOffset", "uBeauty", "uDenoise", "uFaceLight", "uSharp",
-                "uGain", "uLift", "uVignette", "uFade", "uLog", "uTime", "uAspect", "uEffect", "uLut", "uLutMix", "uGrain", "uLeak", "uSkinTone", "uWarmSat", "uFocus", "uOv", "uOvOn", "uOvMatrix"
+                "uGain", "uLift", "uVignette", "uFade", "uLog", "uTime", "uAspect", "uEffect", "uLut", "uLutMix", "uGrain", "uLeak", "uSkinTone", "uWarmSat", "uFocus", "uOv", "uOvOn", "uOvMatrix", "uBgMat", "uBgOn", "uBgMask", "uBgTex"
             ).forEach { uniforms[it] = GLES20.glGetUniformLocation(program, it) }
             // вариант для временного шумоподавления (может не собраться на редких GPU — тогда просто не используем)
             runCatching {
@@ -329,10 +329,11 @@ class GlEffectProcessor : SurfaceProcessor {
         val spec = p.frame
         val previewOut = outputs.keys.firstOrNull { (it.targets and CameraEffect.PREVIEW) != 0 }
         var previewReady = false
-        if (previewOut != null && (spec != null || arFrame != null || snapshotRequest != null)) {
+        if (previewOut != null && (spec != null || arFrame != null || snapshotRequest != null || background != null)) {
             previewOut.updateTransformMatrix(previewM, texMatrix)
             previewReady = true
         }
+        bgReady = previewReady
         if (spec != null && previewOut != null) {
             if (android.opengl.Matrix.invertM(previewInv, 0, previewM, 0)) {
                 EGL14.eglMakeCurrent(display, pbuffer, pbuffer, context)
@@ -431,6 +432,63 @@ class GlEffectProcessor : SurfaceProcessor {
     }
     // endregion
 
+    // region живая замена фона
+    /** Состояние замены фона: маска человека (кадр анализа), фон (null — размытие), отображение экрана. */
+    class Background(val mask: ByteArray, val mw: Int, val mh: Int, val image: android.graphics.Bitmap?, val viewAspect: Float, val mirror: Boolean, val version: Long)
+    @Volatile var background: Background? = null
+    private var bgReady = false
+    private var bgMaskTex = 0; private var bgImgTex = 0
+    private var bgMaskVersion = -1L; private var bgImg: android.graphics.Bitmap? = null
+    private val bgA = FloatArray(16); private val bgTmp = FloatArray(16); private val bgMat = FloatArray(16); private val prevInvBg = FloatArray(16)
+
+    private fun ensureBgTextures(b: Background) {
+        if (bgMaskTex == 0) {
+            val t = IntArray(2); GLES20.glGenTextures(2, t, 0); bgMaskTex = t[0]; bgImgTex = t[1]
+            for (id in t) {
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, id)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+            }
+        }
+        if (b.version != bgMaskVersion) {
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bgMaskTex)
+            GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
+            GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_LUMINANCE, b.mw, b.mh, 0, GLES20.GL_LUMINANCE, GLES20.GL_UNSIGNED_BYTE, ByteBuffer.wrap(b.mask))
+            GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 4)
+            bgMaskVersion = b.version
+        }
+        val img = b.image
+        if (img != null && img !== bgImg) {
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bgImgTex)
+            android.opengl.GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, img, 0)
+            bgImg = img
+        }
+    }
+
+    /**
+     * Матрица для шейдера: текстурные координаты выхода → (u, v) фона на экране (v вниз)
+     * и (x, y) в кадре анализа (там, где лежит маска человека). Учитывает обрезку под экран и зеркало.
+     */
+    private fun bgMatrix(matrixForDraw: FloatArray, b: Background): FloatArray {
+        android.opengl.Matrix.invertM(prevInvBg, 0, previewM, 0)
+        android.opengl.Matrix.multiplyMM(bgTmp, 0, prevInvBg, 0, matrixForDraw, 0)   // выход → uv превью (v вверх)
+        val fa = 0.75f
+        val fx = if (b.viewAspect < fa) b.viewAspect / fa else 1f
+        val fy = if (b.viewAspect > fa) fa / b.viewAspect else 1f
+        java.util.Arrays.fill(bgA, 0f)
+        // по столбцам: bgA[col*4 + row]
+        bgA[0] = 1f                               // u_bg = u
+        bgA[5] = -1f; bgA[13] = 1f                // v_bg = 1 − v
+        if (b.mirror) { bgA[2] = -fx; bgA[14] = fx + (1 - fx) / 2 } else { bgA[2] = fx; bgA[14] = (1 - fx) / 2 }
+        bgA[7] = -fy; bgA[15] = fy + (1 - fy) / 2 // y кадра анализа
+        bgA[10] = 1f
+        android.opengl.Matrix.multiplyMM(bgMat, 0, bgA, 0, bgTmp, 0)
+        return bgMat
+    }
+    // endregion
+
     // region 3D-маски
     /** Текущая AR-сцена (модель + поза лица); null — 3D-маска выключена. */
     @Volatile var arFrame: com.maysk.camera.ar3d.ArFrame? = null
@@ -450,6 +508,20 @@ class GlEffectProcessor : SurfaceProcessor {
         GLES20.glUniform1i(u("uOv"), 2)
         GLES20.glUniform1f(u("uOvOn"), if (ovOn) 1f else 0f)
         GLES20.glUniformMatrix4fv(u("uOvMatrix"), 1, false, if (ovOn) ovM else identity, 0)
+        val bg = background
+        if (bg != null && bgReady) {
+            ensureBgTextures(bg)
+            GLES20.glUniformMatrix4fv(u("uBgMat"), 1, false, bgMatrix(matrixForDraw, bg), 0)
+            GLES20.glUniform1f(u("uBgOn"), if (bg.image == null) 2f else 1f)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE5); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bgMaskTex); GLES20.glUniform1i(u("uBgMask"), 5)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE6); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bgImgTex); GLES20.glUniform1i(u("uBgTex"), 6)
+        } else {
+            GLES20.glUniformMatrix4fv(u("uBgMat"), 1, false, identity, 0)
+            GLES20.glUniform1f(u("uBgOn"), 0f)
+            // сэмплеры должны указывать на 2D-текстуры, даже когда фон выключен
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE5); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lutTex); GLES20.glUniform1i(u("uBgMask"), 5)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE6); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lutTex); GLES20.glUniform1i(u("uBgTex"), 6)
+        }
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         if (useProgram2D) {
             GLES20.glActiveTexture(GLES20.GL_TEXTURE3)

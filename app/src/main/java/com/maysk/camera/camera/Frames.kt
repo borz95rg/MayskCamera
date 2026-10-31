@@ -67,10 +67,12 @@ enum class FrameStyle(val title: String, val category: String, val photoOnly: Bo
     BOTANICAL("Ботаника", "Настроение"),
     LUXE_CORNERS("Уголки люкс", "Люкс"),
     CLEAN_STORY("Чистая история", "Соцсети"),
+    /** Картинка-рамка из пакета шаблонов (FrameSpec.image). В списке стилей не показывается. */
+    IMAGE("Шаблон", "Шаблоны"),
     ;
 
     companion object {
-        val categories: List<String> get() = entries.map { it.category }.distinct()
+        val categories: List<String> get() = entries.filter { it != IMAGE }.map { it.category }.distinct()
     }
 }
 
@@ -83,9 +85,15 @@ data class FrameSpec(
     val radius: Float = 0f,        // 0..1 — скругление «окна»
     val shadow: Boolean = false,
     val caption: String = "",
+    /** Для стиля IMAGE: путь к PNG в assets и режим ("stretch" — по краю кадра, "corner" — в угол). */
+    val image: String? = null,
+    val imageMode: String = "stretch",
 )
 
 object Frames {
+    /** Загрузчик картинок для рамок-шаблонов (ставится приложением; null — картинки недоступны). */
+    @Volatile var imageLoader: ((String) -> Bitmap?)? = null
+
     /** Палитра цветов рамок. */
     val palette = listOf(
         Color.WHITE, Color.BLACK, Color.parseColor("#FF2E63"), Color.parseColor("#F4E3C1"),
@@ -130,6 +138,7 @@ object Frames {
         FrameStyle.TRAVEL -> FrameSpec(style, col("#F4E3C1"), 0.45f, caption = "TRAVEL")
         FrameStyle.GOLD -> FrameSpec(style, col("#D4AF37"), 0.5f)
         FrameStyle.BLACK_GOLD -> FrameSpec(style, col("#D4AF37"), 0.55f, caption = "LUXURY")
+        FrameStyle.IMAGE -> FrameSpec(style, Color.WHITE, 0.5f)
         FrameStyle.AURA -> FrameSpec(style, col("#C77DFF"), 0.42f)
         FrameStyle.BOTANICAL -> FrameSpec(style, col("#7C9A72"), 0.42f)
         FrameStyle.LUXE_CORNERS -> FrameSpec(style, col("#D4AF37"), 0.4f)
@@ -766,6 +775,19 @@ object Frames {
                 innerShadow(c, RectF(t, t, W - t, H - t), 0f, a)
                 listOf(t * 0.65f to t * 0.65f, W - t * 0.65f to t * 0.65f, t * 0.65f to H - t * 0.65f, W - t * 0.65f to H - t * 0.65f).forEach { (x, y) ->
                     ornament(c, x, y, t * 0.45f, paint(withAlpha(col("#5D4512"), a)))
+                }
+            }
+            FrameStyle.IMAGE -> {
+                val bmp = f.image?.let { imageLoader?.invoke(it) }
+                if (bmp != null) {
+                    val p = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { alpha = (255 * a).toInt() }
+                    if (f.imageMode == "corner") {
+                        val bw = s * 0.2f; val bh = bw * bmp.height / bmp.width
+                        c.drawBitmap(bmp, null, RectF(s * 0.05f, H - s * 0.05f - bh, s * 0.05f + bw, H - s * 0.05f), p)
+                    } else {
+                        val m = s * 0.025f
+                        c.drawBitmap(bmp, null, RectF(m, m, W - m, H - m), p)
+                    }
                 }
             }
             FrameStyle.BLACK_GOLD -> {

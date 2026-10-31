@@ -1,0 +1,843 @@
+{
+  "schema_version": "1.0",
+  "app": "MayskCamera",
+  "asset_note": "SVG-файлы — визуальные шаблоны. Для привязки к лицу нужны face landmarks/AR tracking; фоны требуют person segmentation.",
+  "categories": [
+    "Все",
+    "Животные",
+    "Макияж",
+    "3D-эффекты",
+    "Фильтры",
+    "Фон",
+    "Рамки и стикеры",
+    "Украшения"
+  ],
+  "effects": [
+    {
+      "id": "cat",
+      "name": "Котик",
+      "category": "Животные",
+      "type": "face_overlay",
+      "asset": "overlays/animal_cat.svg",
+      "description": "Ушки, усики и носик кота",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "scale": 1.0,
+        "opacity": 1.0
+      }
+    },
+    {
+      "id": "puppy",
+      "name": "Щенок",
+      "category": "Животные",
+      "type": "face_overlay",
+      "asset": "overlays/animal_dog.svg",
+      "description": "Ушки щенка и нос",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "scale": 1.0,
+        "opacity": 1.0
+      }
+    },
+    {
+      "id": "bunny",
+      "name": "Зайка",
+      "category": "Животные",
+      "type": "face_overlay",
+      "asset": "overlays/animal_bunny.svg",
+      "description": "Длинные заячьи ушки",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "scale": 1.0,
+        "opacity": 1.0
+      }
+    },
+    {
+      "id": "fox",
+      "name": "Лисёнок",
+      "category": "Животные",
+      "type": "face_overlay",
+      "asset": "overlays/animal_fox.svg",
+      "description": "Лисьи ушки и мордочка",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "scale": 1.0,
+        "opacity": 1.0
+      }
+    },
+    {
+      "id": "panda",
+      "name": "Панда",
+      "category": "Животные",
+      "type": "face_overlay",
+      "asset": "overlays/animal_panda.svg",
+      "description": "Ушки и пятна панды",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "scale": 1.0,
+        "opacity": 1.0
+      }
+    },
+    {
+      "id": "crown",
+      "name": "Корона",
+      "category": "3D-эффекты",
+      "type": "face_overlay",
+      "asset": "overlays/crown_gold.svg",
+      "description": "Золотая корона над головой",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "scale": 1.0,
+        "opacity": 0.95,
+        "glow": 0.7
+      }
+    },
+    {
+      "id": "devil",
+      "name": "Рожки",
+      "category": "3D-эффекты",
+      "type": "face_overlay",
+      "asset": "overlays/devil_horns.svg",
+      "description": "Неоновые рожки",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "scale": 1.0,
+        "opacity": 0.95,
+        "glow": 0.7
+      }
+    },
+    {
+      "id": "glasses",
+      "name": "Неоновые очки",
+      "category": "3D-эффекты",
+      "type": "face_overlay",
+      "asset": "overlays/neon_glasses.svg",
+      "description": "Светящиеся очки",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "scale": 1.0,
+        "opacity": 0.95,
+        "glow": 0.7
+      }
+    },
+    {
+      "id": "halo",
+      "name": "Нимб",
+      "category": "3D-эффекты",
+      "type": "face_overlay",
+      "asset": "overlays/halo.svg",
+      "description": "Светящийся нимб",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "scale": 1.0,
+        "opacity": 0.95,
+        "glow": 0.7
+      }
+    },
+    {
+      "id": "flower",
+      "name": "Цветочный венок",
+      "category": "3D-эффекты",
+      "type": "face_overlay",
+      "asset": "overlays/flower_crown.svg",
+      "description": "Венок из цветов",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "scale": 1.0,
+        "opacity": 0.95,
+        "glow": 0.7
+      }
+    },
+    {
+      "id": "fire",
+      "name": "Огненная корона",
+      "category": "3D-эффекты",
+      "type": "face_overlay",
+      "asset": "overlays/fire_crown.svg",
+      "description": "Огненная корона",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "scale": 1.0,
+        "opacity": 0.95,
+        "glow": 0.7
+      }
+    },
+    {
+      "id": "ice",
+      "name": "Ледяной кристалл",
+      "category": "3D-эффекты",
+      "type": "face_overlay",
+      "asset": "overlays/ice_crystal.svg",
+      "description": "Кристаллический ледяной эффект",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "scale": 1.0,
+        "opacity": 0.95,
+        "glow": 0.7
+      }
+    },
+    {
+      "id": "visor",
+      "name": "Кибер-визор",
+      "category": "3D-эффекты",
+      "type": "face_overlay",
+      "asset": "overlays/cyberpunk_visor.svg",
+      "description": "Неоновый футуристический визор",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "scale": 1.0,
+        "opacity": 0.95,
+        "glow": 0.7
+      }
+    },
+    {
+      "id": "hearts",
+      "name": "Неоновые сердечки",
+      "category": "Украшения",
+      "type": "face_overlay",
+      "asset": "overlays/neon_hearts.svg",
+      "description": "Светящиеся сердечки вокруг лица",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "intensity": 0.75,
+        "opacity": 0.85
+      }
+    },
+    {
+      "id": "butterfly",
+      "name": "Бабочка",
+      "category": "Украшения",
+      "type": "face_overlay",
+      "asset": "overlays/butterfly.svg",
+      "description": "Светящаяся бабочка",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "intensity": 0.75,
+        "opacity": 0.85
+      }
+    },
+    {
+      "id": "sparkles",
+      "name": "Блёстки",
+      "category": "Украшения",
+      "type": "face_overlay",
+      "asset": "overlays/star_sparkles.svg",
+      "description": "Звёздные блики",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "intensity": 0.75,
+        "opacity": 0.85
+      }
+    },
+    {
+      "id": "freckles",
+      "name": "Веснушки",
+      "category": "Макияж",
+      "type": "face_makeup",
+      "asset": "overlays/face_freckles.svg",
+      "description": "Естественные веснушки",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "intensity": 0.75,
+        "opacity": 0.85
+      }
+    },
+    {
+      "id": "blush",
+      "name": "Румянец",
+      "category": "Макияж",
+      "type": "face_makeup",
+      "asset": "overlays/face_blush.svg",
+      "description": "Мягкий румянец на щеках",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "intensity": 0.75,
+        "opacity": 0.85
+      }
+    },
+    {
+      "id": "liner",
+      "name": "Стрелки",
+      "category": "Макияж",
+      "type": "face_makeup",
+      "asset": "overlays/face_makeup_liner.svg",
+      "description": "Макияж глаз со стрелками",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "intensity": 0.75,
+        "opacity": 0.85
+      }
+    },
+    {
+      "id": "lipgloss",
+      "name": "Блеск для губ",
+      "category": "Макияж",
+      "type": "face_makeup",
+      "asset": "overlays/face_lip_gloss.svg",
+      "description": "Полупрозрачный блеск для губ",
+      "tracking": {
+        "required": true,
+        "anchors": [
+          "forehead_center",
+          "left_eye_outer",
+          "right_eye_outer",
+          "left_cheek",
+          "right_cheek",
+          "nose_tip",
+          "mouth_center",
+          "chin"
+        ]
+      },
+      "parameters": {
+        "intensity": 0.75,
+        "opacity": 0.85
+      }
+    },
+    {
+      "id": "film",
+      "name": "Плёнка",
+      "category": "Рамки и стикеры",
+      "type": "frame_overlay",
+      "asset": "overlays/frame_film.svg",
+      "description": "Классическая фоторамка",
+      "tracking": {
+        "required": false,
+        "anchors": []
+      },
+      "parameters": {
+        "opacity": 1.0
+      }
+    },
+    {
+      "id": "flowers",
+      "name": "Цветочная рамка",
+      "category": "Рамки и стикеры",
+      "type": "frame_overlay",
+      "asset": "overlays/frame_flower.svg",
+      "description": "Рамка с цветочным декором",
+      "tracking": {
+        "required": false,
+        "anchors": []
+      },
+      "parameters": {
+        "opacity": 1.0
+      }
+    },
+    {
+      "id": "location",
+      "name": "Геометка",
+      "category": "Рамки и стикеры",
+      "type": "frame_overlay",
+      "asset": "overlays/sticker_location.svg",
+      "description": "Декоративная геометка",
+      "tracking": {
+        "required": false,
+        "anchors": []
+      },
+      "parameters": {
+        "opacity": 1.0
+      }
+    },
+    {
+      "id": "background_bokeh",
+      "name": "Размытый свет",
+      "category": "Фон",
+      "type": "background",
+      "asset": "backgrounds/bg_bokeh.svg",
+      "description": "Фон для сегментации человека",
+      "tracking": {
+        "required": false,
+        "anchors": []
+      },
+      "parameters": {
+        "blur": 0,
+        "strength": 0.8
+      }
+    },
+    {
+      "id": "background_neon_city",
+      "name": "Неоновый город",
+      "category": "Фон",
+      "type": "background",
+      "asset": "backgrounds/bg_neon_city.svg",
+      "description": "Фон для сегментации человека",
+      "tracking": {
+        "required": false,
+        "anchors": []
+      },
+      "parameters": {
+        "blur": 0,
+        "strength": 0.8
+      }
+    },
+    {
+      "id": "background_sunset",
+      "name": "Закат",
+      "category": "Фон",
+      "type": "background",
+      "asset": "backgrounds/bg_sunset.svg",
+      "description": "Фон для сегментации человека",
+      "tracking": {
+        "required": false,
+        "anchors": []
+      },
+      "parameters": {
+        "blur": 0,
+        "strength": 0.8
+      }
+    },
+    {
+      "id": "background_forest",
+      "name": "Лес",
+      "category": "Фон",
+      "type": "background",
+      "asset": "backgrounds/bg_forest.svg",
+      "description": "Фон для сегментации человека",
+      "tracking": {
+        "required": false,
+        "anchors": []
+      },
+      "parameters": {
+        "blur": 0,
+        "strength": 0.8
+      }
+    },
+    {
+      "id": "background_beach",
+      "name": "Пляж",
+      "category": "Фон",
+      "type": "background",
+      "asset": "backgrounds/bg_beach.svg",
+      "description": "Фон для сегментации человека",
+      "tracking": {
+        "required": false,
+        "anchors": []
+      },
+      "parameters": {
+        "blur": 0,
+        "strength": 0.8
+      }
+    },
+    {
+      "id": "background_hearts",
+      "name": "Розовые сердечки",
+      "category": "Фон",
+      "type": "background",
+      "asset": "backgrounds/bg_pink_hearts.svg",
+      "description": "Фон для сегментации человека",
+      "tracking": {
+        "required": false,
+        "anchors": []
+      },
+      "parameters": {
+        "blur": 0,
+        "strength": 0.8
+      }
+    },
+    {
+      "id": "background_snow",
+      "name": "Зима",
+      "category": "Фон",
+      "type": "background",
+      "asset": "backgrounds/bg_snow.svg",
+      "description": "Фон для сегментации человека",
+      "tracking": {
+        "required": false,
+        "anchors": []
+      },
+      "parameters": {
+        "blur": 0,
+        "strength": 0.8
+      }
+    },
+    {
+      "id": "background_galaxy",
+      "name": "Галактика",
+      "category": "Фон",
+      "type": "background",
+      "asset": "backgrounds/bg_galaxy.svg",
+      "description": "Фон для сегментации человека",
+      "tracking": {
+        "required": false,
+        "anchors": []
+      },
+      "parameters": {
+        "blur": 0,
+        "strength": 0.8
+      }
+    }
+  ],
+  "filters": [
+    {
+      "id": "cinema",
+      "name": "Кино",
+      "category": "Фильтры",
+      "adjustments": {
+        "contrast": 1.12,
+        "saturation": 0.9,
+        "temperature": -0.03,
+        "brightness": -0.02
+      }
+    },
+    {
+      "id": "vintage",
+      "name": "Винтаж",
+      "category": "Фильтры",
+      "adjustments": {
+        "contrast": 0.95,
+        "saturation": 0.78,
+        "temperature": 0.12,
+        "brightness": 0.03
+      }
+    },
+    {
+      "id": "bright",
+      "name": "Яркий",
+      "category": "Фильтры",
+      "adjustments": {
+        "contrast": 1.05,
+        "saturation": 1.22,
+        "temperature": 0.02,
+        "brightness": 0.06
+      }
+    },
+    {
+      "id": "night",
+      "name": "Ночной",
+      "category": "Фильтры",
+      "adjustments": {
+        "contrast": 1.18,
+        "saturation": 1.08,
+        "temperature": -0.08,
+        "brightness": -0.1
+      }
+    },
+    {
+      "id": "pastel",
+      "name": "Пастель",
+      "category": "Фильтры",
+      "adjustments": {
+        "contrast": 0.9,
+        "saturation": 0.82,
+        "temperature": 0.05,
+        "brightness": 0.08
+      }
+    },
+    {
+      "id": "neon",
+      "name": "Неон",
+      "category": "Фильтры",
+      "adjustments": {
+        "contrast": 1.2,
+        "saturation": 1.35,
+        "temperature": -0.04,
+        "brightness": 0.02
+      }
+    },
+    {
+      "id": "summer",
+      "name": "Лето",
+      "category": "Фильтры",
+      "adjustments": {
+        "contrast": 1.04,
+        "saturation": 1.18,
+        "temperature": 0.1,
+        "brightness": 0.05
+      }
+    },
+    {
+      "id": "bw",
+      "name": "Ч/Б",
+      "category": "Фильтры",
+      "adjustments": {
+        "contrast": 1.12,
+        "saturation": 0,
+        "temperature": 0,
+        "brightness": 0.02
+      }
+    }
+  ],
+  "beauty": {
+    "name": "Face Beauty — базовый профиль",
+    "controls": [
+      {
+        "id": "skin_smoothing",
+        "label": "Гладкость кожи",
+        "min": 0,
+        "max": 100,
+        "default": 35
+      },
+      {
+        "id": "skin_tone",
+        "label": "Тон кожи",
+        "min": 0,
+        "max": 100,
+        "default": 50
+      },
+      {
+        "id": "face_light",
+        "label": "Осветление лица",
+        "min": 0,
+        "max": 100,
+        "default": 20
+      },
+      {
+        "id": "eye_enlarge",
+        "label": "Увеличение глаз",
+        "min": 0,
+        "max": 30,
+        "default": 0
+      },
+      {
+        "id": "face_slim",
+        "label": "Коррекция формы лица",
+        "min": 0,
+        "max": 30,
+        "default": 0
+      },
+      {
+        "id": "blush",
+        "label": "Румянец",
+        "min": 0,
+        "max": 100,
+        "default": 0
+      },
+      {
+        "id": "lip_color",
+        "label": "Цвет губ",
+        "min": 0,
+        "max": 100,
+        "default": 0
+      }
+    ],
+    "note": "Значения — стартовые параметры интерфейса. Реальную обработку кожи и геометрии выполняет движок камеры."
+  }
+}

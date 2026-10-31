@@ -612,10 +612,10 @@ fun FramePicker(
         val cw = minOf(w, h * 3 / 4); val ch = minOf(h, w * 4 / 3)
         Bitmap.createScaledBitmap(Bitmap.createBitmap(src, (w - cw) / 2, (h - ch) / 2, cw, ch), 120, 160, true)
     }
-    val styles = remember(cat, videoMode) { com.maysk.camera.camera.FrameStyle.entries.filter { (cat == null || it.category == cat) && !(videoMode && it.photoOnly) } }
+    val styles = remember(cat, videoMode) { com.maysk.camera.camera.FrameStyle.entries.filter { it != com.maysk.camera.camera.FrameStyle.IMAGE && (cat == null || it.category == cat) && !(videoMode && it.photoOnly) } }
     Column {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            item { Pill("Все ${com.maysk.camera.camera.FrameStyle.entries.size}", cat == null) { cat = null } }
+            item { Pill("Все ${com.maysk.camera.camera.FrameStyle.entries.size - 1}", cat == null) { cat = null } }
             items(com.maysk.camera.camera.FrameStyle.categories) { c -> Pill(c, cat == c) { cat = c } }
         }
         LazyRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -187,6 +187,8 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
     val scope = rememberCoroutineScope()
     var panel by remember { mutableStateOf(Panel.NONE) }
     var effectCategory by remember { mutableStateOf("3D-маски") }
+    var studioOpen by remember { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(enabled = studioOpen) { studioOpen = false }
     var focusPoint by remember { mutableStateOf<Offset?>(null) }
 
     val previewView = remember {
@@ -384,6 +386,7 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
             ui.busy?.takeIf { !ui.timelapseActive && !ui.panoramaActive }?.let { BusyOverlay(it, ui.progress) }
         }
 
+        if (!studioOpen) {
         // ================= ВЕРХ =================
         Column(
             Modifier
@@ -600,9 +603,9 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                 // Отдельный режим выбора эффектов: не меняет PHOTO/VIDEO, поэтому
                 // затвор продолжает снимать фото или видео в выбранном режиме камеры.
                 Box(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 2.dp), contentAlignment = Alignment.Center) {
-                    Pill(if (panel == Panel.BROWSER) "✦ Эффекты открыты" else "✦ Эффекты", panel == Panel.BROWSER) {
+                    EffectsButton {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        panel = if (panel == Panel.BROWSER) Panel.NONE else Panel.BROWSER
+                        panel = Panel.NONE; drawerOpen = false; studioOpen = true
                     }
                 }
             }
@@ -645,6 +648,10 @@ fun CameraScreen(vm: CameraViewModel, nav: CameraNav) {
                 }
             }
         }
+        } // !studioOpen
+
+        // ================= СТУДИЯ ЭФФЕКТОВ (отдельный полноэкранный режим) =================
+        if (studioOpen) EffectsStudio(vm = vm, ui = ui, cam = cam, onClose = { studioOpen = false })
 
         // всплывающее сообщение
         ui.message?.let { msg ->
