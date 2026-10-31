@@ -130,6 +130,7 @@ import android.view.OrientationEventListener
 import android.view.Surface
 import android.view.WindowManager
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -1113,7 +1114,7 @@ private fun SnapPanel(vm: CameraViewModel, enabled: Boolean, seconds: Int, openV
                     Button(enabled = busyId == null, onClick = {
                         busyId = entry.id
                         scope.launch {
-                            val uri = withContext(kotlinx.coroutines.Dispatchers.IO) { vm.consumeSnap(entry.id) }
+                            val uri: Uri? = withContext(kotlinx.coroutines.Dispatchers.IO) { vm.consumeSnap(entry.id) }
                             busyId = null
                             refresh++
                             if (uri != null) openViewer(uri, entry.isVideo)
@@ -1123,7 +1124,7 @@ private fun SnapPanel(vm: CameraViewModel, enabled: Boolean, seconds: Int, openV
                     Button(enabled = busyId == null, onClick = {
                         busyId = entry.id
                         scope.launch {
-                            val uri = withContext(kotlinx.coroutines.Dispatchers.IO) { vm.saveSnapToGallery(entry.id) }
+                            val uri: Uri? = withContext(kotlinx.coroutines.Dispatchers.IO) { vm.saveSnapToGallery(entry.id) }
                             busyId = null
                             refresh++
                             android.widget.Toast.makeText(context, if (uri != null) "Сохранено в обычную галерею" else "Не удалось сохранить Snap", android.widget.Toast.LENGTH_SHORT).show()
