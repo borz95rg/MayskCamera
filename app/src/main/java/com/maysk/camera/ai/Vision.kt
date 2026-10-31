@@ -120,27 +120,44 @@ object Vision {
     suspend fun faceMeshes(bitmap: Bitmap, rotation: Int = 0): List<FaceMeshInfo> {
         val uprightW = if (rotation % 180 == 0) bitmap.width else bitmap.height
         val uprightH = if (rotation % 180 == 0) bitmap.height else bitmap.width
-        return runCatching {
-            faceMeshDetector.process(InputImage.fromBitmap(bitmap, rotation)).await().map { mesh ->
-                val points = mesh.allPoints
-                val vertices = points.map { point ->
-                    val p = point.position
-                    floatArrayOf(
-                        (p.x / uprightW).coerceIn(-1f, 2f),
-                        (p.y / uprightH).coerceIn(-1f, 2f),
-                        p.z / uprightW.toFloat()
+        return try {
+            // Declare the ML Kit result type explicitly: this avoids Kotlin inference
+            // ambiguity around the Java Task<List<FaceMesh>> API.
+            val detectedMeshes: List<com.google.mlkit.vision.facemesh.FaceMesh> =
+                faceMeshDetector.process(InputImage.fromBitmap(bitmap, rotation)).await()
+
+            val output = ArrayList<FaceMeshInfo>(detectedMeshes.size)
+            for (mesh in detectedMeshes) {
+                val points: List<com.google.mlkit.vision.facemesh.FaceMeshPoint> = mesh.allPoints
+                val vertices = ArrayList<FloatArray>(points.size)
+
+                for (point in points) {
+                    val position = point.position
+                    vertices.add(
+                        floatArrayOf(
+                            (position.x / uprightW).coerceIn(-1f, 2f),
+                            (position.y / uprightH).coerceIn(-1f, 2f),
+                            position.z / uprightW.toFloat()
+                        )
                     )
                 }
-                val triangles = mesh.allTriangles.map { triangle ->
-                    // ML Kit returns the three FaceMeshPoint objects for each triangle.
-                    // Resolve their stable vertex positions against this mesh's allPoints list.
-                    triangle.allPoints().map { trianglePoint ->
-                        points.indexOf(trianglePoint)
-                    }.toIntArray()
+
+                val triangles = ArrayList<IntArray>()
+                for (triangle in mesh.allTriangles) {
+                    val connectedPoints = triangle.allPoints()
+                    val indices = IntArray(connectedPoints.size)
+                    for (i in connectedPoints.indices) {
+                        indices[i] = points.indexOf(connectedPoints[i])
+                    }
+                    triangles.add(indices)
                 }
-                FaceMeshInfo(vertices, triangles)
+
+                output.add(FaceMeshInfo(vertices, triangles))
             }
-        }.getOrDefault(emptyList())
+            output
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     suspend fun labels(bitmap: Bitmap, rotation: Int = 0): List<Pair<String, Float>> =
