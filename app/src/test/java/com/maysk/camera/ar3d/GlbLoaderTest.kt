@@ -11,14 +11,18 @@ class GlbLoaderTest {
 
     @Test fun allCatalogModelsLoad() {
         val catalog = ArCatalogData.parse(File(dir, "catalog.json").readText())
-        assertEquals(15, catalog.size)
+        // В каталоге 15 базовых моделей и анимированные варианты, ссылающиеся на те же GLB-файлы.
+        assertEquals(15, catalog.map { it.file }.toSet().size)
+        assertTrue("каталог не должен уменьшаться", catalog.size >= 15)
+        assertEquals("id в каталоге должны быть уникальны", catalog.size, catalog.map { it.id }.toSet().size)
         for (e in catalog) {
             val f = File(dir.parentFile, e.file)
             assertTrue("нет файла ${e.file}", f.isFile)
             val m = GlbLoader.parse(f.readBytes())
             assertTrue("${e.id}: нет частей", m.parts.isNotEmpty())
             assertEquals("${e.id}: число треугольников", e.triangles, m.triangleCount)
-            assertEquals(e.title, m.title)
+            // у анимированного варианта название = название модели + пояснение в скобках
+            assertTrue("${e.id}: название '${e.title}' не соответствует модели '${m.title}'", e.title == m.title || e.title.startsWith(m.title + " ("))
             for (p in m.parts) {
                 assertEquals(p.vertexCount * 3, p.normals.size)
                 assertEquals(p.vertexCount * 4, p.colors.size)
