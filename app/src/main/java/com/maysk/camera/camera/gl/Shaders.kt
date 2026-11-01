@@ -7,12 +7,15 @@ attribute vec4 aTexCoord;
 uniform mat4 uTexMatrix;
 uniform mat4 uOvMatrix;
 uniform mat4 uBgMat;
+uniform mat4 uZoneMat;
+varying vec2 vZone;
 varying vec2 vTex;
 varying vec2 vPos;
 varying vec2 vOv;
 varying vec4 vBg;
 void main() {
     vBg = uBgMat * aTexCoord;
+    vZone = (uZoneMat * aTexCoord).zw;
     gl_Position = aPosition;
     vTex = (uTexMatrix * aTexCoord).xy;
     vOv = (uOvMatrix * aTexCoord).xy;
@@ -50,6 +53,19 @@ uniform float uBgOn;
 uniform sampler2D uBgMask;
 uniform sampler2D uBgTex;
 varying vec4 vBg;
+// зоны лица (R кожа, G губы, B веки, A белки/зубы) и макияж
+varying vec2 vZone;
+uniform sampler2D uZone;
+uniform float uZoneOn;
+uniform vec2 uZoneShift;
+uniform vec4 uMkA;     // помада, блеск, зубы, белки глаз
+uniform vec4 uMkB;     // тени, румяна, осветление
+uniform vec3 uLipCol;
+uniform vec3 uShCol;
+uniform vec3 uBlCol;
+uniform vec4 uFaceA;   // рот xy, глаз A xy
+uniform vec4 uFaceB;   // глаз B xy, щека A xy
+uniform vec4 uFaceC;   // щека B xy, радиус румян
 uniform float uLutMix;
 uniform float uGrain;
 uniform float uLeak;
@@ -106,11 +122,23 @@ void main() {
     vec3 c = texture2D(uTex, vTex).rgb;
 
     // 1. Шумоподавление и кожа
+    // зоны лица: геометрия сетки вместо цвета — глаза, брови и губы не сглаживаются
+    vec4 z = vec4(0.0);
     float skin = skinMask(c);
-    float smoothAmt = uDenoise * 0.65 + uBeauty * skin;
-    if (smoothAmt > 0.01) {
+    if (uZoneOn > 0.5) {
+        z = texture2D(uZone, vZone - uZoneShift);
+        skin = z.r * (0.55 + 0.45 * skin);
+    }
+    float dnAmt = clamp(uDenoise * 0.65, 0.0, 1.0);
+    float skAmt = clamp(uBeauty * skin, 0.0, 1.0);
+    if (dnAmt + skAmt > 0.01) {
         vec3 b = bilateral(c, 1.5 + uBeauty * 2.5);
-        c = mix(c, b, clamp(smoothAmt, 0.0, 1.0));
+        // кожа: возвращаем часть мелкой детали (поры), тёмные пятна гасим сильнее
+        vec3 r = c - b;
+        float spot = smoothstep(0.02, 0.07, -luma(r));
+        vec3 keepD = mix(vec3(0.30), vec3(0.08), spot) * uZoneOn;
+        c = mix(c, b, dnAmt);
+        c = mix(c, b + r * keepD, skAmt);
     }
 
     // 2. Свет: осветление лица, экспозиция, подъём теней (ночь)
@@ -132,6 +160,44 @@ void main() {
                + texture2D(uTex, vTex - vec2(0.0, uTexel.y)).rgb;
         vec3 orig = texture2D(uTex, vTex).rgb;
         c += (orig - n * 0.25) * uSharp * 1.5;
+    }
+
+    // 3b. Макияж по зонам лица (светотень и текстура губ/кожи сохраняются)
+    if (uZoneOn > 0.5) {
+        vec2 zc = vZone - uZoneShift;
+        float l0 = luma(c);
+        // осветление кожи без пересвета бликов
+        c += z.r * uMkB.z * 0.10 * (1.0 - l0 * 0.6);
+        // румяна: мягкое пятно на скулах, только по коже
+        if (uMkB.y > 0.01) {
+            vec2 da = (zc - uFaceB.zw) * vec2(0.75, 1.0);
+            vec2 db = (zc - uFaceC.xy) * vec2(0.75, 1.0);
+            float rr = max(uFaceC.z * uFaceC.z, 1e-5);
+            float bl = clamp(exp(-dot(da, da) / rr) + exp(-dot(db, db) / rr), 0.0, 1.0) * z.r * uMkB.y;
+            c = mix(c, c * 0.55 + uBlCol * (0.35 + 0.5 * l0), bl * 0.75);
+        }
+        // тени для век
+        if (uMkB.x > 0.01 && z.b > 0.01) {
+            c = mix(c, uShCol * (0.40 + 0.9 * l0), z.b * uMkB.x * 0.7);
+        }
+        // помада и блеск
+        if (z.g > 0.01 && (uMkA.x > 0.01 || uMkA.y > 0.01)) {
+            c = mix(c, uLipCol * (0.30 + 1.15 * l0), z.g * uMkA.x * 0.8);
+            float glo = smoothstep(0.45, 0.85, luma(c));
+            c += z.g * uMkA.y * (0.05 + 0.35 * glo * glo);
+        }
+        // зубы и белки глаз: убираем желтизну только у светлых малонасыщенных пикселей
+        if (z.a > 0.01 && (uMkA.z > 0.01 || uMkA.w > 0.01)) {
+            float dm = distance(zc, uFaceA.xy);
+            float de = min(distance(zc, uFaceA.zw), distance(zc, uFaceB.xy));
+            float amt = (dm < de) ? uMkA.z : uMkA.w;
+            float mx = max(c.r, max(c.g, c.b));
+            float mn = min(c.r, min(c.g, c.b));
+            float sat = (mx - mn) / max(mx, 0.001);
+            float wt = (1.0 - smoothstep(0.22, 0.50, sat)) * smoothstep(0.30, 0.55, mx) * z.a * amt;
+            c = mix(c, vec3(luma(c) * 1.06 + 0.02), wt * 0.8);
+            c += wt * 0.04;
+        }
     }
 
     // 4. LOG

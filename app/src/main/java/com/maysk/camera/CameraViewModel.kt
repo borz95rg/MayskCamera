@@ -120,6 +120,15 @@ data class CameraUi(
     val beautyTone: Float = 0f,
     val blush: Float = 0f,
     val lips: Float = 0f,
+    /** Макияж по зонам лица (0..1): блеск губ, зубы, белки глаз, тени, осветление; индексы цветов в MakeupPalette. */
+    val lipGloss: Float = 0f,
+    val teethWhite: Float = 0f,
+    val eyeWhite: Float = 0f,
+    val eyeShadow: Float = 0f,
+    val brighten: Float = 0f,
+    val lipShade: Int = 0,
+    val shadowShade: Int = 0,
+    val blushShade: Int = 0,
     val snapMode: Boolean = false,
     val snapSeconds: Int = 10,
     val snapCaption: String = "",
@@ -188,8 +197,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         com.maysk.camera.camera.Frames.imageLoader = { path -> com.maysk.camera.ar3d.EffectTemplates.bitmap(ctx, path) }
         controller.analyzer = LiveAnalyzer(
             enabled = { settings.value.smartAi || _ui.value.aiPro || needsFaces() },
-            onResult = { scene -> live.value = scene; updateAr3d(scene); viewModelScope.launch { onLiveScene(scene) } },
-            realtimeFaces = { _ui.value.arMask != com.maysk.camera.camera.ArMask.NONE || arActive() },
+            onResult = { scene -> live.value = scene; updateAr3d(scene); updateFaceZones(scene); viewModelScope.launch { onLiveScene(scene) } },
+            realtimeFaces = { _ui.value.arMask != com.maysk.camera.camera.ArMask.NONE || arActive() || zonesWanted() },
             wantSegmentation = { _ui.value.bgId != null },
             onPersonMask = { m, w, h -> onPersonMask(m, w, h) },
             onThumb = { b -> liveThumb.value = b }
@@ -199,7 +208,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     /** Живой кадр для миниатюр фильтров (обновляется раз в ~2 с). */
     val liveThumb = kotlinx.coroutines.flow.MutableStateFlow<Bitmap?>(null)
 
-    private fun needsFaces() = _ui.value.arMask != com.maysk.camera.camera.ArMask.NONE || arActive() || _ui.value.mode in setOf(CameraMode.PORTRAIT, CameraMode.INTERVIEW, CameraMode.CINEMATIC, CameraMode.VLOG, CameraMode.AI_AUTO)
+    private fun needsFaces() = _ui.value.arMask != com.maysk.camera.camera.ArMask.NONE || arActive() || zonesWanted() || _ui.value.mode in setOf(CameraMode.PORTRAIT, CameraMode.INTERVIEW, CameraMode.CINEMATIC, CameraMode.VLOG, CameraMode.AI_AUTO)
 
     // region привязка камеры
     fun attach(owner: LifecycleOwner, pv: PreviewView) {
@@ -413,7 +422,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** На лице что-то рисуется: 3D-маска, шаблон или живой макияж. */
-    fun arActive(): Boolean { val u = _ui.value; return u.ar3d != null || u.faceTpl != null || u.blush > 0.01f || u.lips > 0.01f }
+    fun arActive(): Boolean { val u = _ui.value; return u.ar3d != null || u.faceTpl != null }
 
     @Volatile private var tplSprites: List<com.maysk.camera.ar3d.Sprite> = emptyList()
     @Volatile private var beautySprites: List<com.maysk.camera.ar3d.Sprite> = emptyList()
@@ -438,22 +447,83 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         if (_ui.value.filterId != "original") setFilterIntensity(a)
     }
 
-    /** Живой макияж: румянец и губы — те же шаблоны, прозрачность = значение ползунка. */
+    /** Живой макияж: румянец и губы рисует шейдер по зонам сетки лица (без плоских наклеек). */
     fun setFaceBeauty(tone: Float? = null, blush: Float? = null, lips: Float? = null) {
         _ui.update { it.copy(beautyTone = tone ?: it.beautyTone, blush = blush ?: it.blush, lips = lips ?: it.lips) }
-        val u = _ui.value
-        viewModelScope.launch {
-            val pack = com.maysk.camera.ar3d.EffectTemplates.pack(ctx)
-            val list = withContext(Dispatchers.IO) {
-                buildList {
-                    if (u.blush > 0.01f) pack.faces.firstOrNull { it.id == "blush" }?.let { addAll(com.maysk.camera.ar3d.EffectTemplates.sprites(ctx, it, u.blush)) }
-                    if (u.lips > 0.01f) pack.faces.firstOrNull { it.id == "lipgloss" }?.let { addAll(com.maysk.camera.ar3d.EffectTemplates.sprites(ctx, it, u.lips)) }
-                }
-            }
-            beautySprites = list
-            refreshAr()
+        beautySprites = emptyList()
+        refreshAr()
+        updateEffect()
+    }
+
+    /** Остальные ползунки макияжа и выбор оттенков. */
+    fun setMakeup(
+        gloss: Float? = null, teeth: Float? = null, eyeWhite: Float? = null, shadow: Float? = null, brighten: Float? = null,
+        lipShade: Int? = null, shadowShade: Int? = null, blushShade: Int? = null,
+    ) {
+        _ui.update {
+            it.copy(
+                lipGloss = gloss ?: it.lipGloss, teethWhite = teeth ?: it.teethWhite, eyeWhite = eyeWhite ?: it.eyeWhite,
+                eyeShadow = shadow ?: it.eyeShadow, brighten = brighten ?: it.brighten,
+                lipShade = lipShade ?: it.lipShade, shadowShade = shadowShade ?: it.shadowShade, blushShade = blushShade ?: it.blushShade,
+            )
         }
         updateEffect()
+    }
+
+    /** Включён ли хотя бы один ползунок макияжа (шейдер по зонам лица). */
+    fun makeupActive(): Boolean {
+        val u = _ui.value
+        return u.lips > 0.01f || u.blush > 0.01f || u.lipGloss > 0.01f || u.teethWhite > 0.01f || u.eyeWhite > 0.01f ||
+            u.eyeShadow > 0.01f || u.brighten > 0.01f
+    }
+
+    /** Нужны ли зоны лица: макияж или сглаживание кожи по геометрии лица. */
+    private fun zonesWanted(): Boolean = makeupActive() || (_ui.value.beautyOn && settings.value.beautySkin > 0.01f)
+
+    // --- зоны лица: сетка считается ~8 раз в секунду, поэтому между обновлениями сдвигаем растр вместе с рамкой лица
+    private var zonesMesh: com.maysk.camera.ai.FaceMeshInfo? = null
+    private var zonesRes: com.maysk.camera.ar3d.FaceZones.Result? = null
+    private var zonesAnchors = FloatArray(11)
+    private var zonesBoxX = 0f
+    private var zonesBoxY = 0f
+    private var zonesVersion = 0L
+    private var zonesSeenAt = 0L
+
+    private fun updateFaceZones(scene: com.maysk.camera.ai.LiveScene) {
+        if (!zonesWanted()) {
+            if (controller.processor.faceZones != null) controller.processor.faceZones = null
+            zonesMesh = null; zonesRes = null
+            return
+        }
+        val now = android.os.SystemClock.elapsedRealtime()
+        val withMesh = scene.faces.filter { it.mesh3d != null }
+        val face = withMesh.maxByOrNull { it.box.width() }
+        val mesh = face?.mesh3d
+        if (face == null || mesh == null) {
+            // сетка может пропасть на кадр-другой: держим прежние зоны не дольше 600 мс
+            if (now - zonesSeenAt > 600) controller.processor.faceZones = null
+            return
+        }
+        if (mesh !== zonesMesh) {
+            val res = com.maysk.camera.ar3d.FaceZones.build(withMesh.map { it.mesh3d!!.vertices }, withMesh.indexOf(face))
+            val a = res.anchors
+            zonesAnchors = if (a == null) FloatArray(11) else floatArrayOf(
+                a.mouthX, a.mouthY, a.eyeAX, a.eyeAY, a.eyeBX, a.eyeBY, a.cheekAX, a.cheekAY, a.cheekBX, a.cheekBY, a.radius,
+            )
+            zonesRes = res; zonesMesh = mesh
+            zonesBoxX = face.box.centerX(); zonesBoxY = face.box.centerY()
+            zonesVersion++
+        }
+        val res = zonesRes ?: return
+        zonesSeenAt = now
+        val pv = previewView
+        val aspect = if (pv != null && pv.height > 0) pv.width.toFloat() / pv.height else 9f / 19.5f
+        val sx = (face.box.centerX() - zonesBoxX).coerceIn(-0.08f, 0.08f)
+        val sy = (face.box.centerY() - zonesBoxY).coerceIn(-0.08f, 0.08f)
+        controller.processor.faceZones = com.maysk.camera.camera.gl.GlEffectProcessor.FaceZonesFrame(
+            res.rgba, com.maysk.camera.ar3d.FaceZones.W, com.maysk.camera.ar3d.FaceZones.H, zonesAnchors,
+            aspect, _ui.value.front, zonesVersion, sx, sy,
+        )
     }
 
     private fun refreshAr() {
@@ -466,6 +536,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         setAr3d(null); setFaceTemplate(null); setBackground(null); setFrame(null); setEffect(Effect.NONE); setFilter("original")
         _ui.update { it.copy(effectAlpha = 1f) }
         setFaceBeauty(0f, 0f, 0f)
+        setMakeup(gloss = 0f, teeth = 0f, eyeWhite = 0f, shadow = 0f, brighten = 0f)
     }
 
     // ---------- живая замена фона ----------
@@ -562,7 +633,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun takeArPhoto() {
         _ui.update { it.copy(busy = "Снимок с 3D-маской…") }
         playShutter()
-        val hadMask = controller.processor.arFrame != null || !arActive()
+        val hadMask = (if (arActive()) controller.processor.arFrame != null else true) && (if (makeupActive()) controller.processor.faceZones != null else true)
         val bmp = kotlinx.coroutines.withTimeoutOrNull(2000) {
             kotlinx.coroutines.suspendCancellableCoroutine<Bitmap?> { cont ->
                 controller.processor.requestSnapshot { b -> if (cont.isActive) cont.resumeWith(Result.success(b)) }
@@ -723,6 +794,13 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             skinTone = maxOf(f.skinTone * u.filterIntensity, modeSkinTone(u.mode), u.beautyTone),
             warmSat = maxOf(f.warmSat * u.filterIntensity, modeWarmSat(u.mode)),
             focus = portraitFocus(u, l),
+            makeup = com.maysk.camera.camera.gl.Makeup(
+                lipstick = u.lips, gloss = u.lipGloss, teeth = u.teethWhite, eyeWhite = u.eyeWhite,
+                shadow = u.eyeShadow, blush = u.blush, brighten = u.brighten,
+                lipColor = com.maysk.camera.ar3d.MakeupPalette.LIPS.getOrElse(u.lipShade) { com.maysk.camera.ar3d.MakeupPalette.LIPS[0] }.argb,
+                shadowColor = com.maysk.camera.ar3d.MakeupPalette.SHADOWS.getOrElse(u.shadowShade) { com.maysk.camera.ar3d.MakeupPalette.SHADOWS[0] }.argb,
+                blushColor = com.maysk.camera.ar3d.MakeupPalette.BLUSH.getOrElse(u.blushShade) { com.maysk.camera.ar3d.MakeupPalette.BLUSH[0] }.argb,
+            ),
             frame = u.frame?.takeIf { !it.style.photoOnly } ?: modeFrame(u.mode),
             // ночное видео: накопление кадров по времени убирает «кипящий» шум в тенях
             // шумодав по времени: вес ~0.65 ≈ усреднение 3–4 последних кадров, движущееся берётся из текущего
@@ -823,7 +901,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun takePhoto() {
         // эффекты на лице или замена фона — снимок из того же GL-кадра, что видно в превью
-        if ((arActive() || _ui.value.bgId != null) && cam.value.effectsActive) { takeArPhoto(); return }
+        if ((arActive() || makeupActive() || _ui.value.bgId != null) && cam.value.effectsActive) { takeArPhoto(); return }
         val u = _ui.value
         val s = settings.value
         val c = cam.value

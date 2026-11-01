@@ -345,18 +345,29 @@ private fun BeautySheet(vm: CameraViewModel, ui: CameraUi, skin: Float, light: F
         BeautySlider("Увеличение глаз", eyes, hint = "на фото") { v -> if (!ui.beautyOn) vm.setBeauty(true); vm.updateSettings({ it.copy(beautyEyes = v) }) }
         BeautySlider("Интенсивность эффекта", ui.effectAlpha) { vm.setEffectAlpha(it) }
         // «Макияж»: румянец + блеск губ одним переключателем, тонкая настройка — ползунками ниже
-        val makeup = ui.blush > 0.01f || ui.lips > 0.01f
+        val makeup = ui.blush > 0.01f || ui.lips > 0.01f || ui.lipGloss > 0.01f || ui.eyeShadow > 0.01f || ui.teethWhite > 0.01f || ui.eyeWhite > 0.01f || ui.brighten > 0.01f
         Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Макияж", color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
             androidx.compose.material3.Switch(
                 checked = makeup,
-                onCheckedChange = { on -> if (on) vm.setFaceBeauty(blush = 0.45f, lips = 0.5f) else vm.setFaceBeauty(blush = 0f, lips = 0f) },
+                onCheckedChange = { on ->
+                    if (on) vm.setFaceBeauty(blush = 0.45f, lips = 0.5f)
+                    else { vm.setFaceBeauty(blush = 0f, lips = 0f); vm.setMakeup(gloss = 0f, teeth = 0f, eyeWhite = 0f, shadow = 0f, brighten = 0f) }
+                },
                 colors = androidx.compose.material3.SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Pink, uncheckedTrackColor = Color.White.copy(alpha = 0.15f))
             )
         }
         if (makeup) {
             BeautySlider("Румянец", ui.blush) { vm.setFaceBeauty(blush = it) }
-            BeautySlider("Губы", ui.lips) { vm.setFaceBeauty(lips = it) }
+            BeautySlider("Помада", ui.lips) { vm.setFaceBeauty(lips = it) }
+            ShadeRow("Цвет помады", com.maysk.camera.ar3d.MakeupPalette.LIPS, ui.lipShade) { vm.setMakeup(lipShade = it) }
+            BeautySlider("Блеск губ", ui.lipGloss) { vm.setMakeup(gloss = it) }
+            BeautySlider("Тени для век", ui.eyeShadow) { vm.setMakeup(shadow = it) }
+            ShadeRow("Цвет теней", com.maysk.camera.ar3d.MakeupPalette.SHADOWS, ui.shadowShade) { vm.setMakeup(shadowShade = it) }
+            BeautySlider("Свежесть кожи", ui.brighten) { vm.setMakeup(brighten = it) }
+            BeautySlider("Белые зубы", ui.teethWhite) { vm.setMakeup(teeth = it) }
+            BeautySlider("Белки глаз", ui.eyeWhite) { vm.setMakeup(eyeWhite = it) }
+            Text("Макияж рисуется по сетке лица и попадает в фото и видео. Нужно, чтобы лицо было видно целиком.", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
         }
         Text("Фон", color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp, bottom = 8.dp))
         val ctx = LocalContext.current
@@ -371,6 +382,27 @@ private fun BeautySheet(vm: CameraViewModel, ui: CameraUi, skin: Float, light: F
             "Сбросить всё", color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp, textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().clickable { vm.resetStudio() }.padding(top = 12.dp, bottom = 2.dp)
         )
+    }
+}
+
+/** Ряд цветных кружков для выбора оттенка. */
+@Composable
+private fun ShadeRow(title: String, shades: List<com.maysk.camera.ar3d.MakeupPalette.Shade>, selected: Int, onPick: (Int) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.padding(end = 12.dp))
+        shades.forEachIndexed { i, sh ->
+            Box(
+                Modifier
+                    .padding(end = 10.dp)
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .background(if (i == selected) Color.White else Color.Transparent)
+                    .padding(3.dp)
+                    .clip(CircleShape)
+                    .background(Color(sh.argb))
+                    .clickable { onPick(i) }
+            )
+        }
     }
 }
 

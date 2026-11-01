@@ -25,6 +25,22 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import java.util.concurrent.Executor
 
+/** Живой макияж по зонам лица (0..1) и цвета в ARGB; рисуется шейдером по сетке лица. */
+data class Makeup(
+    val lipstick: Float = 0f,
+    val gloss: Float = 0f,
+    val teeth: Float = 0f,
+    val eyeWhite: Float = 0f,
+    val shadow: Float = 0f,
+    val blush: Float = 0f,
+    val brighten: Float = 0f,
+    val lipColor: Int = 0xFFC2335A.toInt(),
+    val shadowColor: Int = 0xFF8A5A78.toInt(),
+    val blushColor: Int = 0xFFE8707A.toInt(),
+) {
+    val any: Boolean get() = lipstick > 0.01f || gloss > 0.01f || teeth > 0.01f || eyeWhite > 0.01f || shadow > 0.01f || blush > 0.01f || brighten > 0.01f
+}
+
 /** Параметры обработки кадра. Иммутабельный снимок — безопасно менять из UI-потока. */
 data class EffectParams(
     val colorMatrix: FloatArray = Filters.ORIGINAL.matrix,
@@ -51,6 +67,8 @@ data class EffectParams(
     val frame: com.maysk.camera.camera.FrameSpec? = null,
     /** Временное шумоподавление (ночное видео), 0..0.85. */
     val temporal: Float = 0f,
+    /** Макияж по зонам лица. */
+    val makeup: Makeup = Makeup(),
 )
 
 /**
@@ -197,7 +215,8 @@ class GlEffectProcessor : SurfaceProcessor {
             aTexCoord = GLES20.glGetAttribLocation(program, "aTexCoord")
             listOf(
                 "uTexMatrix", "uTex", "uTexel", "uColor", "uOffset", "uBeauty", "uDenoise", "uFaceLight", "uSharp",
-                "uGain", "uLift", "uVignette", "uFade", "uLog", "uTime", "uAspect", "uEffect", "uLut", "uLutMix", "uGrain", "uLeak", "uSkinTone", "uWarmSat", "uFocus", "uOv", "uOvOn", "uOvMatrix", "uBgMat", "uBgOn", "uBgMask", "uBgTex"
+                "uGain", "uLift", "uVignette", "uFade", "uLog", "uTime", "uAspect", "uEffect", "uLut", "uLutMix", "uGrain", "uLeak", "uSkinTone", "uWarmSat", "uFocus", "uOv", "uOvOn", "uOvMatrix", "uBgMat", "uBgOn", "uBgMask", "uBgTex",
+                "uZoneMat", "uZone", "uZoneOn", "uZoneShift", "uMkA", "uMkB", "uLipCol", "uShCol", "uBlCol", "uFaceA", "uFaceB", "uFaceC"
             ).forEach { uniforms[it] = GLES20.glGetUniformLocation(program, it) }
             // вариант для временного шумоподавления (может не собраться на редких GPU — тогда просто не используем)
             runCatching {
@@ -475,21 +494,93 @@ class GlEffectProcessor : SurfaceProcessor {
      * Матрица для шейдера: текстурные координаты выхода → (u, v) фона на экране (v вниз)
      * и (x, y) в кадре анализа (там, где лежит маска человека). Учитывает обрезку под экран и зеркало.
      */
-    private fun bgMatrix(matrixForDraw: FloatArray, b: Background): FloatArray {
+    private fun bgMatrix(matrixForDraw: FloatArray, b: Background): FloatArray = bgMatrix(matrixForDraw, b.viewAspect, b.mirror)
+
+    private fun bgMatrix(matrixForDraw: FloatArray, viewAspect: Float, mirror: Boolean): FloatArray {
         android.opengl.Matrix.invertM(prevInvBg, 0, previewM, 0)
         android.opengl.Matrix.multiplyMM(bgTmp, 0, prevInvBg, 0, matrixForDraw, 0)   // выход → uv превью (v вверх)
         val fa = 0.75f
-        val fx = if (b.viewAspect < fa) b.viewAspect / fa else 1f
-        val fy = if (b.viewAspect > fa) fa / b.viewAspect else 1f
+        val fx = if (viewAspect < fa) viewAspect / fa else 1f
+        val fy = if (viewAspect > fa) fa / viewAspect else 1f
         java.util.Arrays.fill(bgA, 0f)
         // по столбцам: bgA[col*4 + row]
         bgA[0] = 1f                               // u_bg = u
         bgA[5] = -1f; bgA[13] = 1f                // v_bg = 1 − v
-        if (b.mirror) { bgA[2] = -fx; bgA[14] = fx + (1 - fx) / 2 } else { bgA[2] = fx; bgA[14] = (1 - fx) / 2 }
+        if (mirror) { bgA[2] = -fx; bgA[14] = fx + (1 - fx) / 2 } else { bgA[2] = fx; bgA[14] = (1 - fx) / 2 }
         bgA[7] = -fy; bgA[15] = fy + (1 - fy) / 2 // y кадра анализа
         bgA[10] = 1f
         android.opengl.Matrix.multiplyMM(bgMat, 0, bgA, 0, bgTmp, 0)
         return bgMat
+    }
+    // endregion
+
+    // region Зоны лица (макияж)
+    /**
+     * Растр зон лица ([com.maysk.camera.ar3d.FaceZones]) в координатах кадра анализа.
+     * [anchors] — 11 чисел из FaceZones.Anchors; [shiftX]/[shiftY] — смещение лица с момента расчёта сетки.
+     */
+    class FaceZonesFrame(
+        val rgba: ByteArray, val w: Int, val h: Int, val anchors: FloatArray,
+        val viewAspect: Float, val mirror: Boolean, val version: Long,
+        val shiftX: Float, val shiftY: Float,
+    )
+    @Volatile var faceZones: FaceZonesFrame? = null
+    private var zoneTex = 0
+    private var zoneVersion = -1L
+
+    private fun ensureZoneTexture(z: FaceZonesFrame) {
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE7)
+        if (zoneTex == 0) {
+            val t = IntArray(1); GLES20.glGenTextures(1, t, 0); zoneTex = t[0]
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, zoneTex)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        }
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, zoneTex)
+        if (z.version != zoneVersion) {
+            GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
+            GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, z.w, z.h, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, ByteBuffer.wrap(z.rgba))
+            GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 4)
+            zoneVersion = z.version
+        }
+    }
+
+    private fun argb3(c: Int, out: FloatArray = FloatArray(3)): FloatArray {
+        out[0] = ((c shr 16) and 255) / 255f; out[1] = ((c shr 8) and 255) / 255f; out[2] = (c and 255) / 255f
+        return out
+    }
+
+    /** Макияж и зоны лица → uniform'ы основного шейдера. Без зон/макияжа шейдер ничего не меняет. */
+    private fun bindMakeup(matrixForDraw: FloatArray, p: EffectParams) {
+        val z = faceZones
+        val mk = p.makeup
+        if (z != null && bgReady) {   // матрица превью известна только при bgReady
+            ensureZoneTexture(z)
+            GLES20.glUniformMatrix4fv(u("uZoneMat"), 1, false, bgMatrix(matrixForDraw, z.viewAspect, z.mirror), 0)
+            GLES20.glUniform1f(u("uZoneOn"), 1f)
+            GLES20.glUniform2f(u("uZoneShift"), z.shiftX, z.shiftY)
+            val a = z.anchors
+            GLES20.glUniform4f(u("uFaceA"), a[0], a[1], a[2], a[3])
+            GLES20.glUniform4f(u("uFaceB"), a[4], a[5], a[6], a[7])
+            GLES20.glUniform4f(u("uFaceC"), a[8], a[9], a[10], 0f)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE7); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, zoneTex)
+        } else {
+            GLES20.glUniformMatrix4fv(u("uZoneMat"), 1, false, identity, 0)
+            GLES20.glUniform1f(u("uZoneOn"), 0f)
+            GLES20.glUniform2f(u("uZoneShift"), 0f, 0f)
+            GLES20.glUniform4f(u("uFaceA"), 0f, 0f, 0f, 0f); GLES20.glUniform4f(u("uFaceB"), 0f, 0f, 0f, 0f); GLES20.glUniform4f(u("uFaceC"), 0f, 0f, 0f, 0f)
+            // сэмплер должен указывать на валидную 2D-текстуру даже при выключенных зонах
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE7); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lutTex)
+        }
+        GLES20.glUniform1i(u("uZone"), 7)
+        GLES20.glUniform4f(u("uMkA"), mk.lipstick, mk.gloss, mk.teeth, mk.eyeWhite)
+        GLES20.glUniform4f(u("uMkB"), mk.shadow, mk.blush, mk.brighten, 0f)
+        val c3 = argb3(mk.lipColor); GLES20.glUniform3f(u("uLipCol"), c3[0], c3[1], c3[2])
+        argb3(mk.shadowColor, c3); GLES20.glUniform3f(u("uShCol"), c3[0], c3[1], c3[2])
+        argb3(mk.blushColor, c3); GLES20.glUniform3f(u("uBlCol"), c3[0], c3[1], c3[2])
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
     }
     // endregion
 
@@ -526,6 +617,7 @@ class GlEffectProcessor : SurfaceProcessor {
             GLES20.glActiveTexture(GLES20.GL_TEXTURE5); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lutTex); GLES20.glUniform1i(u("uBgMask"), 5)
             GLES20.glActiveTexture(GLES20.GL_TEXTURE6); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lutTex); GLES20.glUniform1i(u("uBgTex"), 6)
         }
+        bindMakeup(matrixForDraw, p)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         if (useProgram2D) {
             GLES20.glActiveTexture(GLES20.GL_TEXTURE3)
